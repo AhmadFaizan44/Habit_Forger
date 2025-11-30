@@ -1,7 +1,29 @@
 /**
- * FORGE - Habit Tracker Application
- * Version: 2.0 (Enhanced Analytics & UI)
+ * FORGE - Cloud Habit Tracker
+ * Version: 3.0 (Firebase Integration)
  */
+
+// --- FIREBASE CONFIGURATION ---
+// 1. Go to Firebase Console > Create Project
+// 2. Add Web App > Copy Config object below
+  const firebaseConfig = {
+    apiKey: "AIzaSyCYuWCSbCIRInMe0RVHJ8q3CR8tNJeviC4",
+    authDomain: "forge-habit-tracker-45a37.firebaseapp.com",
+    projectId: "forge-habit-tracker-45a37",
+    storageBucket: "forge-habit-tracker-45a37.firebasestorage.app",
+    messagingSenderId: "157279686748",
+    appId: "1:157279686748:web:fbea1f594138ef3b919699"
+  };
+
+// Initialize Firebase
+let auth, db;
+try {
+    firebase.initializeApp(firebaseConfig);
+    auth = firebase.auth();
+    db = firebase.firestore();
+} catch (e) {
+    console.warn("Firebase not configured yet. Using local storage mode.");
+}
 
 const app = (() => {
     // --- State Management ---
@@ -12,14 +34,11 @@ const app = (() => {
             { id: 3, name: "Drink 2L Water" }
         ],
         records: {}, 
-        settings: {
-            theme: 'light',
-            accent: '#8B5CF6'
-        }
+        settings: { theme: 'light', accent: '#8B5CF6' }
     };
 
-    let state = JSON.parse(localStorage.getItem('forge_data')) || defaultData;
-    
+    let state = defaultData;
+    let currentUser = null;
     let viewState = {
         currentDate: new Date(),
         activeView: 'tracker',
@@ -31,23 +50,68 @@ const app = (() => {
     // --- Core Functions ---
 
     const init = () => {
+        // Load local first for speed
+        const local = localStorage.getItem('forge_data');
+        if(local) state = JSON.parse(local);
+
         applyTheme();
         renderHeader();
         renderSidebar();
         navigate('tracker');
         
-        // Init Date Pickers with default values (Last 7 days)
+        // Init Date Pickers
         const today = new Date().toISOString().split('T')[0];
         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        document.getElementById('date-end').value = today;
-        document.getElementById('date-start').value = lastWeek;
+        const endInput = document.getElementById('date-end');
+        if(endInput) {
+            endInput.value = today;
+            document.getElementById('date-start').value = lastWeek;
+        }
 
         setupEventListeners();
+
+        // Check Firebase Auth
+        if(auth) {
+            auth.onAuthStateChanged(user => {
+                currentUser = user;
+                updateProfileUI(user);
+                if (user) syncDataFromCloud();
+            });
+        }
     };
 
     const saveData = () => {
+        // 1. Save Local
         localStorage.setItem('forge_data', JSON.stringify(state));
         renderHeader();
+
+        // 2. Save Cloud (Debounced 1s would be better, but direct for simplicity)
+        if (currentUser && db) {
+            db.collection('users').doc(currentUser.uid).set(state)
+                .catch(err => console.error("Cloud Save Error", err));
+        }
+    };
+
+    const syncDataFromCloud = async () => {
+        if (!currentUser || !db) return;
+        try {
+            const doc = await db.collection('users').doc(currentUser.uid).get();
+            if (doc.exists) {
+                state = doc.data();
+                // Ensure defaults exist if merged
+                if(!state.settings) state.settings = defaultData.settings;
+                if(!state.records) state.records = {};
+                
+                saveData(); // Sync back to local
+                navigate(viewState.activeView); // Re-render current view
+                applyTheme();
+            } else {
+                // New user on cloud, upload local data
+                saveData();
+            }
+        } catch (e) {
+            console.error("Sync error", e);
+        }
     };
 
     // --- Helper: Date Handling ---
@@ -61,19 +125,16 @@ const app = (() => {
     const toggleSidebar = () => {
         viewState.isSidebarCollapsed = !viewState.isSidebarCollapsed;
         const sidebar = document.getElementById('sidebar');
-        
-        if (viewState.isSidebarCollapsed) {
-            sidebar.classList.add('sidebar-collapsed');
-        } else {
-            sidebar.classList.remove('sidebar-collapsed');
-        }
+        if (viewState.isSidebarCollapsed) sidebar.classList.add('sidebar-collapsed');
+        else sidebar.classList.remove('sidebar-collapsed');
     };
 
     // --- View Navigation ---
     const navigate = (viewName) => {
         viewState.activeView = viewName;
         document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
-        document.getElementById(`view-${viewName}`).classList.remove('hidden');
+        const target = document.getElementById(`view-${viewName}`);
+        if(target) target.classList.remove('hidden');
 
         document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active-nav'));
         const navIndex = ['tracker', 'analytics', 'settings'].indexOf(viewName);
@@ -84,7 +145,7 @@ const app = (() => {
         if (viewName === 'settings') renderSettings();
     };
 
-    // --- SECTION: TRACKER (Unchanged logic) ---
+    // --- SECTION: TRACKER ---
     const renderTracker = () => {
         const year = viewState.currentDate.getFullYear();
         const month = viewState.currentDate.getMonth();
@@ -94,8 +155,8 @@ const app = (() => {
         document.getElementById('calendar-month-year').innerText = `${monthNames[month]} ${year}`;
 
         const headerRow = document.getElementById('calendar-header-row');
-        headerRow.innerHTML = `<div class="flex gap-2 pb-2"></div>`;
-        let daysHtml = '<div class="flex gap-2">';
+        headerRow.innerHTML = '';
+        let daysHtml = '<div class="flex gap-2 pb-2">';
         
         for (let d = 1; d <= daysInMonth; d++) {
             const dateObj = new Date(year, month, d);
@@ -151,51 +212,51 @@ const app = (() => {
         saveData();
     };
 
-    // --- SECTION: ANALYTICS (Major Upgrade) ---
-
+    // --- SECTION: ANALYTICS (FIXED) ---
     const renderAnalyticsUI = () => {
         const select = document.getElementById('analytics-habit-select');
-        // Add "All Habits" option + dynamic habits
         let options = `<option value="all">All Habits (Aggregate)</option>`;
         options += state.habits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
         select.innerHTML = options;
         
-        handlePeriodChange(); // Set initial dates
+        // Only set default dates if not already set by user interaction
+        if(!document.getElementById('date-end').value) handlePeriodChange(); 
+        else renderAnalytics();
     };
 
     const handlePeriodChange = () => {
         const period = document.getElementById('analytics-period-select').value;
         const customDiv = document.getElementById('custom-date-controls');
-        const dateEndInput = document.getElementById('date-end');
-        const dateStartInput = document.getElementById('date-start');
-
+        
         let end = new Date();
         let start = new Date();
 
         if (period === 'custom') {
             customDiv.classList.remove('hidden');
-            // Don't overwrite values if user is typing
+            return; // Don't calc dates
         } else {
             customDiv.classList.add('hidden');
-            if (period === '7days') {
-                start.setDate(end.getDate() - 6);
-            } else if (period === '30days') {
-                start.setDate(end.getDate() - 29);
-            } else if (period === 'month') {
-                start = new Date(end.getFullYear(), end.getMonth(), 1);
-            }
-            // Update Inputs
-            dateEndInput.value = end.toISOString().split('T')[0];
-            dateStartInput.value = start.toISOString().split('T')[0];
+            if (period === '7days') start.setDate(end.getDate() - 6);
+            else if (period === '30days') start.setDate(end.getDate() - 29);
+            else if (period === 'month') start = new Date(end.getFullYear(), end.getMonth(), 1);
+            
+            document.getElementById('date-end').value = end.toISOString().split('T')[0];
+            document.getElementById('date-start').value = start.toISOString().split('T')[0];
+            renderAnalytics();
         }
-        renderAnalytics();
     };
 
     const renderAnalytics = () => {
-        const habitId = document.getElementById('analytics-habit-select').value; // 'all' or ID
+        const habitId = document.getElementById('analytics-habit-select').value;
         const chartType = document.getElementById('analytics-chart-type').value;
-        const startDate = new Date(document.getElementById('date-start').value);
-        const endDate = new Date(document.getElementById('date-end').value);
+        // Fix: Use UTC or parse carefully to avoid timezone issues with inputs
+        const startInput = document.getElementById('date-start').value;
+        const endInput = document.getElementById('date-end').value;
+        
+        if(!startInput || !endInput) return;
+
+        const startDate = new Date(startInput);
+        const endDate = new Date(endInput);
         
         const ctxMain = document.getElementById('mainChart').getContext('2d');
         const ctxPie = document.getElementById('consistencyChart').getContext('2d');
@@ -203,41 +264,43 @@ const app = (() => {
         if (viewState.chartInstance) viewState.chartInstance.destroy();
         if (viewState.consistencyChartInstance) viewState.consistencyChartInstance.destroy();
 
-        // 1. Generate Data Range
         const labels = [];
         const dataPoints = [];
         let totalCompleted = 0;
         let totalPossible = 0;
 
-        // Iterate date range
-        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-            const key = formatDateKey(d);
-            labels.push(new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        // Clone start date for iteration
+        let loopDate = new Date(startDate);
+        
+        // Loop while loopDate <= endDate
+        while(loopDate <= endDate) {
+            const key = formatDateKey(loopDate);
+            labels.push(new Date(loopDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
             
             let val = 0;
             const records = state.records[key] || [];
 
             if (habitId === 'all') {
-                // Average of all habits
                 if (state.habits.length > 0) {
-                    val = (records.length / state.habits.length) * 100;
+                    val = Math.round((records.length / state.habits.length) * 100);
                     totalCompleted += records.length;
                     totalPossible += state.habits.length;
                 }
             } else {
-                // Specific Habit
                 const id = parseInt(habitId);
                 const isDone = records.includes(id);
                 val = isDone ? 100 : 0;
                 totalCompleted += isDone ? 1 : 0;
                 totalPossible += 1;
             }
-            dataPoints.push(Math.round(val));
+            dataPoints.push(val);
+            
+            // Increment Day
+            loopDate.setDate(loopDate.getDate() + 1);
         }
 
         const accent = state.settings.accent;
 
-        // 2. Draw Main Chart
         viewState.chartInstance = new Chart(ctxMain, {
             type: chartType,
             data: {
@@ -255,13 +318,10 @@ const app = (() => {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                scales: {
-                    y: { beginAtZero: true, max: 100 }
-                }
+                scales: { y: { beginAtZero: true, max: 100 } }
             }
         });
 
-        // 3. Draw Summary Chart (Pie)
         const missed = totalPossible - totalCompleted;
         viewState.consistencyChartInstance = new Chart(ctxPie, {
             type: 'doughnut',
@@ -276,14 +336,10 @@ const app = (() => {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '70%',
-                plugins: {
-                    legend: { position: 'bottom' }
-                }
+                cutout: '70%'
             }
         });
 
-        // Update Stat Text
         document.getElementById('period-count').innerText = totalCompleted;
     };
 
@@ -353,12 +409,30 @@ const app = (() => {
     const resetData = (scope) => {
         if(!confirm('Are you sure?')) return;
         if (scope === 'all') state.records = {};
-        else if (scope === 'month') {
-            const prefix = formatDateKey(new Date()).substring(0, 7);
-            Object.keys(state.records).forEach(k => { if(k.startsWith(prefix)) delete state.records[k]; });
-        }
         saveData();
         navigate('tracker');
+    };
+
+    // --- Profile & Auth UI Helper ---
+    const updateProfileUI = (user) => {
+        const authForms = document.getElementById('auth-forms');
+        const profileInfo = document.getElementById('profile-info');
+        const userStatusText = document.getElementById('user-status-text');
+
+        if (user) {
+            authForms.classList.add('hidden');
+            profileInfo.classList.remove('hidden');
+            
+            document.getElementById('profile-name').innerText = user.displayName || "User";
+            document.getElementById('profile-email').innerText = user.email;
+            document.getElementById('profile-pic').src = user.photoURL || `https://ui-avatars.com/api/?name=${user.email}&background=8B5CF6&color=fff`;
+            
+            userStatusText.innerText = "Online";
+        } else {
+            authForms.classList.remove('hidden');
+            profileInfo.classList.add('hidden');
+            userStatusText.innerText = "Guest Mode";
+        }
     };
 
     const renderHeader = () => {
@@ -383,7 +457,6 @@ const app = (() => {
 
         document.getElementById('today-progress').innerText = `${todayPct}%`;
         document.getElementById('month-progress').innerText = `${monthPct}%`;
-        document.getElementById('overall-score-sidebar').innerText = `${monthPct}%`;
     };
 
     const renderSidebar = () => {
@@ -402,5 +475,28 @@ const app = (() => {
     };
 
 })();
+
+const authManager = {
+    signInGoogle: () => {
+        if(!auth) return alert("Firebase not configured");
+        const provider = new firebase.auth.GoogleAuthProvider();
+        auth.signInWithPopup(provider).catch(e => alert(e.message));
+    },
+    handleEmailAuth: () => {
+        if(!auth) return alert("Firebase not configured");
+        const email = document.getElementById('auth-email').value;
+        const pass = document.getElementById('auth-password').value;
+        const errorMsg = document.getElementById('auth-error');
+        
+        if(window.authMode === 'register') {
+            auth.createUserWithEmailAndPassword(email, pass)
+                .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
+        } else {
+            auth.signInWithEmailAndPassword(email, pass)
+                .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
+        }
+    },
+    logout: () => auth.signOut()
+};
 
 document.addEventListener('DOMContentLoaded', app.init);
