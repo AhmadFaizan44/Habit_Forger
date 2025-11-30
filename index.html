@@ -1,633 +1,231 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>30-Day Habit Tracker — Edit & View</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Marcellus:wght@400&display=swap" rel="stylesheet">
-<style>
-:root{
-  --paper:#0f172a;            /* default dark */
-  --ink:#e5e7eb;
-  --muted:#9aa4b2;
-  --line:#1f2a3a;
-  --line-strong:#2a3a52;
-  --accent:#ffffff08;
-  --radius:14px;
-  --shadow:0 10px 30px rgba(0,0,0,.35);
-  --brand:#0ea5e9;
-  --brand-2:#22c55e;
-  --grad-angle:135deg;
-  --sheet-bg:#0b1220;         /* board background */
-}
-:root.light{
-  --paper:#ffffff;
-  --ink:#0b1220;
-  --muted:#6b7280;
-  --line:#e5e7eb;
-  --line-strong:#cbd5e1;
-  --accent:#11182706;
-  --shadow:0 8px 26px rgba(0,0,0,.08);
-  --sheet-bg:#ffffff;
-}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FORGE | Habit Tracker</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        lavender: '#E6E6FA',
+                        forge: {
+                            light: '#F3F4F6', // Notion-like background
+                            dark: '#191919',  // Dark mode background
+                            accent: '#8B5CF6' // Default Purple
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
 
-/* Base */
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0;
-  background:
-    radial-gradient(900px 500px at 10% -10%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 60%),
-    radial-gradient(900px 500px at 110% 0%, color-mix(in srgb, var(--brand-2) 10%, transparent), transparent 60%),
-    var(--paper);
-  color:var(--ink);
-  font:14px/1.45 "Inter", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-}
-.container{max-width:1400px; margin:28px auto; padding:0 16px}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-/* Top bar */
-.top{
-  display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;
-}
-.brand{
-  display:flex; align-items:center; gap:12px;
-}
-.logo{
-  width:52px; height:52px; border-radius:16px; display:grid; place-items:center;
-  background:
-    radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--brand) 28%, transparent), transparent 60%),
-    radial-gradient(circle at 70% 70%, color-mix(in srgb, var(--brand-2) 28%, transparent), transparent 60%),
-    var(--sheet-bg);
-  border:1px solid var(--line-strong); box-shadow:var(--shadow);
-}
-.logo svg{width:26px; height:26px}
-h1{margin:0; font-family:"Marcellus", serif; font-size:28px}
-h1 small{display:block; color:var(--muted); font:600 12px/1.1 Inter}
-
-/* Mode picker */
-.mode-picker{
-  display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin:10px 0 18px;
-}
-.card{
-  background:linear-gradient(180deg, rgba(255,255,255,.5), rgba(255,255,255,.35));
-  border:1px solid var(--line-strong); border-radius:16px; padding:16px; box-shadow:var(--shadow);
-}
-.card .row{display:flex; align-items:center; gap:12px; justify-content:space-between; flex-wrap:wrap}
-.badge{font-size:12px; color:var(--muted)}
-.btn{
-  background:linear-gradient(var(--grad-angle), var(--brand), var(--brand-2));
-  color:#fff; border:none; padding:10px 14px; border-radius:12px; font-weight:800; cursor:pointer; box-shadow:var(--shadow)
-}
-.btn.ghost{background:transparent; color:var(--ink); border:1px solid var(--line-strong); box-shadow:none}
-.btn.small{padding:8px 10px; font-weight:700}
-.icon-btn{
-  background:transparent; border:1px solid var(--line-strong); color:var(--ink);
-  padding:8px 10px; border-radius:10px; cursor:pointer
-}
-
-/* Controls row (only in Edit) */
-.controls{
-  display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:10px 0 14px; color:var(--muted); font-size:12px;
-}
-.controls .tile{
-  display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--sheet-bg);
-  border:1px solid var(--line-strong); border-radius:12px;
-}
-.controls input[type="color"]{width:34px; height:28px; border:none; background:transparent}
-.controls input[type="range"]{accent-color:var(--brand); width:150px}
-.swatch{
-  width:110px; height:28px; border-radius:10px; border:1px solid var(--line-strong);
-  background:linear-gradient(var(--grad-angle), var(--brand), var(--brand-2));
-}
-
-/* Sheet board */
-.board{
-  background:var(--sheet-bg);
-  border:1px solid var(--line-strong);
-  border-radius:16px; overflow:hidden; box-shadow:var(--shadow);
-}
-.board-header{
-  display:flex; align-items:center; gap:12px; padding:14px 16px;
-  border-bottom:1px solid var(--line); background:var(--accent)
-}
-.progress{flex:1; height:12px; border-radius:999px; border:1px solid var(--line-strong); background:#00000012; overflow:hidden}
-.progress i{display:block; height:100%; width:0%; background:linear-gradient(90deg, var(--brand), var(--brand-2))}
-.pct{min-width:66px; text-align:right; font-weight:800; color:var(--muted)}
-
-.sheet-wrap{padding:0}
-.sheet{
-  --name-col: 230px;
-  display:grid;
-  grid-template-columns: var(--name-col) repeat(30, minmax(28px, 1fr));
-  border-top:1px solid var(--line);
-  overflow:auto;
-}
-.cell{
-  display:flex; align-items:center; justify-content:center;
-  border-right:1px solid var(--line); border-bottom:1px solid var(--line);
-  background:transparent; min-height:36px; padding:0;
-}
-.cell.head{
-  position:sticky; top:0; z-index:3;
-  background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06));
-  color:var(--muted); font-weight:800; font-size:12px; backdrop-filter:saturate(140%) blur(2px);
-}
-.cell.name{
-  position:sticky; left:0; z-index:2;
-  justify-content:flex-start; padding:0 12px; gap:8px;
-  background:linear-gradient(90deg, rgba(255,255,255,.10), rgba(255,255,255,.06));
-}
-.cell.name .rowpct{margin-left:auto; color:var(--muted); font-weight:700}
-.cell.head.day{cursor:pointer}
-.cell.name .label{cursor:pointer}
-.week{background:
-  linear-gradient(0deg,
-    color-mix(in srgb, var(--brand) 8%, transparent),
-    color-mix(in srgb, var(--brand-2) 8%, transparent))}
-.cell.weekhead{background:
-  linear-gradient(180deg,
-    color-mix(in srgb, var(--brand) 14%, transparent),
-    rgba(255,255,255,.03))}
-
-/* Full-box checkbox: fills the whole cell */
-.fullbox{
-  width:100%; height:100%;
-  display:block; cursor:pointer; position:relative;
-  isolation:isolate;
-}
-.fullbox input{
-  position:absolute; inset:0; width:100%; height:100%;
-  opacity:0; cursor:pointer;
-}
-.fullbox .box{
-  position:absolute; inset:4px;        /* padding inside cell */
-  border:2px solid #8aa0b5; border-radius:6px;
-  background:transparent; transition:.15s ease;
-}
-.fullbox:hover .box{border-color:#6b86a4}
-.fullbox input:checked + .box{
-  border-color:transparent;
-  background:linear-gradient(var(--grad-angle), var(--brand), var(--brand-2));
-  box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 25%, transparent) inset;
-}
-
-/* Task manager (Edit only) */
-.taskbar{
-  display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:10px 0 6px;
-}
-.taskbar input[type="text"]{
-  padding:9px 10px; border-radius:10px; border:1px solid var(--line-strong);
-  background:var(--sheet-bg); color:var(--ink); width:min(340px, 60vw);
-}
-
-/* Footer legend */
-.legend{padding:10px 16px; color:var(--muted); font-size:12px; display:flex; gap:18px; flex-wrap:wrap;
-  border-top:1px solid var(--line); background:var(--accent)}
-.legend b{color:var(--ink)}
-
-/* Utility (hidden when viewing) */
-.hidden{display:none !important}
-
-/* Print: print sheet only */
-@media print{
-  @page{size: A4 landscape; margin:10mm}
-  body{background:#fff}
-  .container>*:not(.printable){display:none !important}
-  .printable{display:block}
-  .printable .sheet{border-color:#e5e7eb}
-  .printable .cell{border-color:#e5e7eb}
-  .printable .cell.head, .printable .cell.name{background:#fff}
-}
-
-/* Simple tooltip-ish title look for icon buttons on hover (optional) */
-.icon-btn:hover{filter:brightness(1.08)}
-</style>
+    <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <div class="container">
-    <!-- Top bar -->
-    <div class="top">
-      <div class="brand">
-        <div class="logo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="url(#g)" stroke-width="1.6">
-            <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="var(--brand)"/><stop offset="1" stop-color="var(--brand-2)"/></linearGradient></defs>
-            <circle cx="12" cy="12" r="9"/>
-            <path d="M12 3v18M3 12h18" opacity=".35"/>
-          </svg>
-        </div>
-        <div>
-          <h1>30-Day Habit Tracker <small>Select a mode to begin</small></h1>
-        </div>
-      </div>
-      <div class="right">
-        <button id="modeEditBtn" class="btn small">✏️ Edit</button>
-        <button id="modeViewBtn" class="btn ghost small">👁️ View</button>
-        <button id="toggleTheme" class="icon-btn" title="Light / Dark">🌓</button>
-        <button id="fullscreenBtn" class="icon-btn" title="Fullscreen">⛶</button>
-      </div>
+<body class="bg-forge-light text-gray-800 transition-colors duration-300 dark:bg-forge-dark dark:text-gray-200 font-sans overflow-hidden">
+
+    <button id="mobile-menu-btn" class="md:hidden absolute top-4 left-4 z-50 p-2 rounded-lg bg-white shadow-md dark:bg-gray-800">
+        <i class="fa-solid fa-bars"></i>
+    </button>
+
+    <div class="flex h-screen w-full">
+        
+		<aside id="sidebar" class="w-64 bg-white dark:bg-gray-900 h-full shadow-xl transform -translate-x-full md:translate-x-0 transition-all duration-300 absolute md:relative z-40 flex flex-col justify-between group overflow-hidden">
+			<div>
+				<div class="p-6 flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition" onclick="app.toggleSidebar()">
+					<i class="fa-solid fa-fire text-2xl text-violet-500 flex-shrink-0"></i>
+					<h1 class="text-2xl font-bold tracking-tight sidebar-text whitespace-nowrap transition-opacity duration-300">FORGE</h1>
+				</div>
+
+				<nav class="mt-6 px-4 space-y-2">
+					<button onclick="app.navigate('tracker')" class="nav-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-violet-50 dark:hover:bg-gray-800 transition-all text-left active-nav">
+						<i class="fa-solid fa-calendar-check w-5 text-center flex-shrink-0"></i>
+						<span class="sidebar-text whitespace-nowrap transition-opacity duration-300">Tracker</span>
+					</button>
+					<button onclick="app.navigate('analytics')" class="nav-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-violet-50 dark:hover:bg-gray-800 transition-all text-left">
+						<i class="fa-solid fa-chart-pie w-5 text-center flex-shrink-0"></i>
+						<span class="sidebar-text whitespace-nowrap transition-opacity duration-300">Analytics</span>
+					</button>
+					<button onclick="app.navigate('settings')" class="nav-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-violet-50 dark:hover:bg-gray-800 transition-all text-left">
+						<i class="fa-solid fa-sliders w-5 text-center flex-shrink-0"></i>
+						<span class="sidebar-text whitespace-nowrap transition-opacity duration-300">Settings</span>
+					</button>
+				</nav>
+			</div>
+
+			<div class="p-4 border-t border-gray-100 dark:border-gray-800">
+				<div class="bg-violet-50 dark:bg-gray-800 p-3 rounded-xl flex items-center gap-3 overflow-hidden">
+					<div class="bg-violet-500 text-white w-10 h-10 min-w-[2.5rem] rounded-full flex items-center justify-center font-bold flex-shrink-0">
+						U
+					</div>
+					<div class="sidebar-text whitespace-nowrap transition-opacity duration-300">
+						<p class="text-xs text-gray-500 dark:text-gray-400">Total Consistency</p>
+						<p class="font-bold text-violet-600 dark:text-violet-400" id="overall-score-sidebar">0%</p>
+					</div>
+				</div>
+			</div>
+		</aside>
+
+        <main class="flex-1 h-full overflow-y-auto p-6 md:p-10 relative" id="main-content">
+            
+            <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 pt-10 md:pt-0">
+                <div>
+                    <h2 id="current-date-display" class="text-3xl font-bold text-gray-900 dark:text-white mb-1">Loading...</h2>
+                    <p class="text-gray-500 dark:text-gray-400">Keep forging your path.</p>
+                </div>
+                <div class="flex gap-4">
+                    <div class="text-right">
+                        <p class="text-xs text-gray-500 uppercase font-semibold">Today</p>
+                        <p class="text-xl font-bold text-violet-600" id="today-progress">0%</p>
+                    </div>
+                    <div class="w-px bg-gray-300 h-10"></div>
+                    <div class="text-right">
+                        <p class="text-xs text-gray-500 uppercase font-semibold">Month</p>
+                        <p class="text-xl font-bold text-green-500" id="month-progress">0%</p>
+                    </div>
+                </div>
+            </header>
+
+            <section id="view-tracker" class="view-section animate-fade-in">
+                <div class="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm mb-6">
+                    <button onclick="app.changeMonth(-1)" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"><i class="fa-solid fa-chevron-left"></i></button>
+                    <h3 id="calendar-month-year" class="text-xl font-bold">October 2023</h3>
+                    <button onclick="app.changeMonth(1)" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+
+                <div class="overflow-x-auto rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr>
+                                <th class="p-4 border-b border-r dark:border-gray-700 w-48 bg-gray-50 dark:bg-gray-800 sticky left-0 z-10">Habit</th>
+                                <th class="p-4 border-b dark:border-gray-700 min-w-[300px]" id="calendar-header-row"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tracker-body">
+                            </tbody>
+                    </table>
+                </div>
+            </section>
+
+			<section id="view-analytics" class="view-section hidden animate-fade-in">
+				<div class="mb-6 flex flex-col gap-4">
+					<h3 class="text-2xl font-bold">Analytics Dashboard</h3>
+					
+					<div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm flex flex-wrap gap-4 items-end border border-gray-100 dark:border-gray-700">
+						
+						<div class="flex-1 min-w-[200px]">
+							<label class="text-xs font-bold text-gray-400 uppercase">Target</label>
+							<select id="analytics-habit-select" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500" onchange="app.renderAnalytics()">
+								</select>
+						</div>
+
+						<div class="flex-1 min-w-[150px]">
+							<label class="text-xs font-bold text-gray-400 uppercase">Period</label>
+							<select id="analytics-period-select" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500" onchange="app.handlePeriodChange()">
+								<option value="7days">Last 7 Days</option>
+								<option value="30days">Last 30 Days</option>
+								<option value="month">This Month</option>
+								<option value="custom">Custom Range</option>
+							</select>
+						</div>
+
+						<div id="custom-date-controls" class="flex gap-2 hidden">
+							<div>
+								<label class="text-xs font-bold text-gray-400 uppercase">From</label>
+								<input type="date" id="date-start" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600" onchange="app.renderAnalytics()">
+							</div>
+							<div>
+								<label class="text-xs font-bold text-gray-400 uppercase">To</label>
+								<input type="date" id="date-end" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600" onchange="app.renderAnalytics()">
+							</div>
+						</div>
+
+						<div class="w-32">
+							<label class="text-xs font-bold text-gray-400 uppercase">Visual</label>
+							<select id="analytics-chart-type" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600" onchange="app.renderAnalytics()">
+								<option value="bar">Bar Chart</option>
+								<option value="line">Line Trend</option>
+								<option value="radar">Radar</option>
+							</select>
+						</div>
+					</div>
+				</div>
+
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+					<div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 col-span-1 lg:col-span-2">
+						<h4 class="font-bold text-gray-500 mb-4 uppercase text-sm">Performance Overview</h4>
+						<div class="relative h-72 w-full">
+							<canvas id="mainChart"></canvas>
+						</div>
+					</div>
+
+					<div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+						<h4 class="font-bold text-gray-500 mb-4 uppercase text-sm">Success Rate (Period)</h4>
+						<div class="relative h-60 w-full flex justify-center">
+							<canvas id="consistencyChart"></canvas>
+						</div>
+					</div>
+
+					<div class="bg-lavender dark:bg-gray-700 p-6 rounded-2xl shadow-sm flex flex-col justify-center items-center text-center">
+						<i class="fa-solid fa-trophy text-4xl text-yellow-500 mb-2"></i>
+						<h4 class="font-bold text-lg">Completion Count</h4>
+						<p class="text-4xl font-extrabold text-violet-700 dark:text-violet-300 my-2" id="period-count">0</p>
+						<p class="text-sm opacity-70">Times completed in range</p>
+					</div>
+				</div>
+			</section>
+
+            <section id="view-settings" class="view-section hidden animate-fade-in">
+                <h3 class="text-2xl font-bold mb-6">Settings & Customization</h3>
+
+                <div class="space-y-6 max-w-2xl">
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm">
+                        <h4 class="font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-palette"></i> Appearance</h4>
+                        
+                        <div class="flex items-center justify-between mb-4">
+                            <span>Dark Mode</span>
+                            <button onclick="app.toggleDarkMode()" class="w-12 h-6 bg-gray-200 rounded-full relative transition-colors duration-300 focus:outline-none" id="dark-mode-toggle">
+                                <div class="w-4 h-4 bg-white rounded-full absolute top-1 left-1 transition-transform duration-300 shadow-sm"></div>
+                            </button>
+                        </div>
+                        
+                        <div>
+                            <span class="block mb-2">Accent Color</span>
+                            <input type="color" id="accent-picker" class="w-full h-10 cursor-pointer rounded-lg" onchange="app.updateAccent(this.value)">
+                        </div>
+                    </div>
+
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm">
+                        <h4 class="font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-list-check"></i> Manage Habits</h4>
+                        <div id="settings-habit-list" class="space-y-3">
+                            </div>
+                        <button onclick="app.addHabit()" class="mt-4 text-sm font-bold text-violet-600 hover:text-violet-800">+ Add New Habit</button>
+                    </div>
+
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-red-100 dark:border-red-900/30">
+                        <h4 class="font-bold mb-4 text-red-500 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation"></i> Danger Zone</h4>
+                        <div class="flex gap-4">
+                            <button onclick="app.resetData('month')" class="px-4 py-2 border border-red-200 text-red-500 rounded-lg hover:bg-red-50 transition">Reset This Month</button>
+                            <button onclick="app.resetData('all')" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Reset All Data</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
     </div>
 
-    <!-- Mode picker cards -->
-    <div id="modePicker" class="mode-picker">
-      <div class="card">
-        <div class="row">
-          <div>
-            <strong>Edit Mode</strong><div class="badge">Add/Delete tasks, change colors, manage sheet</div>
-          </div>
-          <button class="btn" id="goEdit">Start Edit</button>
-        </div>
-      </div>
-      <div class="card">
-        <div class="row">
-          <div>
-            <strong>View Mode</strong><div class="badge">View & check the sheet; Print sheet only</div>
-          </div>
-          <button class="btn ghost" id="goView">Open View</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- EDIT PAGE -->
-    <section id="editPage" class="hidden">
-      <!-- Theme & color controls -->
-      <div class="controls card">
-        <div class="tile">
-          <span>Start</span><input type="color" id="c1" value="#0ea5e9">
-          <span>End</span><input type="color" id="c2" value="#22c55e">
-          <span>Angle</span><input type="range" id="angle" min="0" max="360" value="135"><span id="angleVal">135°</span>
-          <div class="swatch" title="Preview"></div>
-          <button class="icon-btn" id="genGrad" title="Generate gradient">🎨 Generate</button>
-          <button class="btn small" id="applyGrad">Apply</button>
-        </div>
-        <div class="tile">
-          <span>Page BG</span><input type="color" id="pageBg">
-          <button class="icon-btn" id="resetTheme" title="Reset theme">↺ Reset</button>
-        </div>
-        <div class="tile">
-          <button class="icon-btn" id="exportPrint1" title="Print sheet only">🖨️ Print</button>
-        </div>
-      </div>
-
-      <!-- Task manager -->
-      <div class="taskbar">
-        <input id="newTask" type="text" placeholder="Add new task (e.g., Running, Journaling)" />
-        <button class="btn small" id="addTask">Add Task</button>
-        <span class="badge">Click a habit name to toggle whole row • Click a day number to toggle the column</span>
-      </div>
-
-      <!-- Sheet -->
-      <div id="sheetCard1" class="board printable">
-        <div class="board-header">
-          <div class="progress" role="progressbar"><i id="overallBar1"></i></div>
-          <div class="pct" id="overallPct1">0%</div>
-        </div>
-        <div id="sheet1" class="sheet" role="table" aria-label="Editable sheet"></div>
-        <div class="legend">
-          <span>✔️ Autosaves in your browser</span>
-          <span>➕ Use Add Task to insert new rows</span>
-          <span>🗑️ Use “Delete” on a task row to remove it (with confirmation)</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- VIEW PAGE -->
-    <section id="viewPage" class="hidden">
-      <div class="card" style="margin-bottom:10px; display:flex; gap:10px; padding:10px; align-items:center; justify-content:space-between">
-        <div class="badge">View Mode — sheet only; no editing controls</div>
-        <div>
-          <button class="icon-btn" id="exportPrint2" title="Print sheet only">🖨️ Print</button>
-        </div>
-      </div>
-
-      <div id="sheetCard2" class="board printable">
-        <div class="board-header">
-          <div class="progress" role="progressbar"><i id="overallBar2"></i></div>
-          <div class="pct" id="overallPct2">0%</div>
-        </div>
-        <div id="sheet2" class="sheet" role="table" aria-label="View sheet"></div>
-        <div class="legend"><span>🖨️ The Print button prints only this sheet.</span></div>
-      </div>
-    </section>
-  </div>
-
-<script>
-(() => {
-  const DAYS = 30;
-  const STORAGE_KEY = "habit-tracker-pro-v4";
-  const THEME_KEY = STORAGE_KEY + ":theme";
-  const PREF_KEY  = STORAGE_KEY + ":pref";
-
-  // Default tasks (with 5 prayers)
-  const DEFAULT_TASKS = [
-    "Fajr","Zohr","Asr","Maghrib","Isha",
-    "Qur’an Pak Reading","Zikr / Ibadah","No Lust",
-    "Remember an Ayat","Productive Work","Study","Workout","Exercise","Book Reading"
-  ];
-
-  /* ---------- Utilities ---------- */
-  const qs = (s,p=document)=>p.querySelector(s);
-  const qsa=(s,p=document)=>[...p.querySelectorAll(s)];
-  const el=(t,c)=>{const e=document.createElement(t); if(c) e.className=c; return e};
-  const state = {
-    tasks: [],
-    checks: {},    // key: rX-dY -> boolean
-  };
-  const pref = {
-    theme:"dark"
-  };
-
-  function load(){
-    try{
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      if(saved && Array.isArray(saved.tasks)){
-        state.tasks = saved.tasks;
-        state.checks = saved.checks || {};
-      }else{
-        state.tasks = DEFAULT_TASKS.slice();
-        state.checks = {};
-      }
-    }catch{
-      state.tasks = DEFAULT_TASKS.slice();
-      state.checks = {};
-    }
-    try{
-      Object.assign(pref, JSON.parse(localStorage.getItem(PREF_KEY) || "{}"));
-    }catch{}
-  }
-  function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  function savePref(){ localStorage.setItem(PREF_KEY, JSON.stringify(pref)); }
-
-  function readTheme(){
-    try{ return JSON.parse(localStorage.getItem(THEME_KEY) || "null"); }catch{ return null; }
-  }
-  function writeTheme(t){ localStorage.setItem(THEME_KEY, JSON.stringify(t)); }
-
-  function setCSS(vars){
-    for(const [k,v] of Object.entries(vars)){
-      document.documentElement.style.setProperty(k, v);
-    }
-  }
-
-  /* ---------- Theme & UI Prefs ---------- */
-  function applyThemeFromStored(){
-    const t = readTheme();
-    if(t){
-      setCSS({"--brand": t.c1, "--brand-2": t.c2, "--grad-angle": t.a+"deg", "--paper": t.pageBg || getVar("--paper")});
-      if(t.light) document.documentElement.classList.add("light"); else document.documentElement.classList.remove("light");
-      if(t.pageBg) document.body.style.backgroundColor = t.pageBg;
-    }
-  }
-  function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
-
-  /* ---------- Build Sheet ---------- */
-  function buildSheet(targetId, allowDelete=false){
-    const sheet = qs("#"+targetId);
-    sheet.innerHTML = "";
-
-    // Header corner
-    const corner = el("div","cell head name");
-    corner.textContent = allowDelete ? "Habit / Day (Edit)" : "Habit / Day";
-    sheet.appendChild(corner);
-
-    // Day headers
-    for(let d=1; d<=DAYS; d++){
-      const c = el("div","cell head day");
-      c.dataset.col=d; c.textContent=d;
-      if(d%7===0) c.classList.add("weekhead");
-      sheet.appendChild(c);
-    }
-
-    // Rows
-    state.tasks.forEach((task, r)=>{
-      const nameCell = el("div","cell name");
-      nameCell.dataset.row=r;
-      const lbl = el("span","label"); lbl.textContent = task;
-      const rowpct = el("span","rowpct"); rowpct.textContent="0%";
-      nameCell.append(lbl,rowpct);
-
-      if(allowDelete){
-        const del = el("button","icon-btn"); del.textContent="Delete";
-        del.title="Delete this task";
-        del.style.marginLeft="8px";
-        del.addEventListener("click", ()=>{
-          if(confirm(`Delete "${task}" and its checkmarks?`)){
-            // remove row checks
-            for(let d=1; d<=DAYS; d++) delete state.checks[key(r,d)];
-            // remove task
-            state.tasks.splice(r,1);
-            save();
-            renderAll();
-          }
-        });
-        nameCell.appendChild(del);
-      }
-      sheet.appendChild(nameCell);
-
-      for(let d=1; d<=DAYS; d++){
-        const cell = el("div","cell"+(d%7===0?" week":""));
-        const fb = el("label","fullbox");
-        const cb = el("input"); cb.type="checkbox"; cb.id=key(r,d);
-        cb.checked = !!state.checks[cb.id];
-        const box = el("span","box");
-        fb.append(cb,box);
-        cell.appendChild(fb);
-        sheet.appendChild(cell);
-      }
-    });
-
-    // listeners
-    sheet.addEventListener("change", e=>{
-      if(e.target.type==="checkbox"){
-        state.checks[e.target.id] = e.target.checked;
-        save(); updateProgressBars();
-      }
-    });
-    // toggles
-    sheet.addEventListener("click", e=>{
-      const head = e.target.closest(".cell.head.day");
-      if(head){
-        toggleColumn(Number(head.dataset.col));
-        updateProgressBars();
-      }
-      const name = e.target.closest(".cell.name .label");
-      if(name){
-        const r = Number(name.parentElement.dataset.row);
-        toggleRow(r);
-        updateProgressBars();
-      }
-    });
-  }
-
-  const key = (r,c)=>`r${r}-d${c}`;
-
-  function toggleRow(r){
-    const all = [];
-    for(let d=1; d<=DAYS; d++){ all.push(key(r,d)); }
-    const everyChecked = all.every(k=>!!state.checks[k]);
-    all.forEach(k=> state.checks[k] = !everyChecked);
-    save();
-    // update DOM
-    all.forEach(k=> {
-      const el = document.getElementById(k);
-      if(el) el.checked = !!state.checks[k];
-    });
-  }
-  function toggleColumn(c){
-    const ids = state.tasks.map((_,r)=> key(r,c));
-    const everyChecked = ids.every(k=>!!state.checks[k]);
-    ids.forEach(k=> state.checks[k] = !everyChecked);
-    save();
-    ids.forEach(k=>{
-      const el = document.getElementById(k);
-      if(el) el.checked = !!state.checks[k];
-    });
-  }
-
-  /* ---------- Progress ---------- */
-  function updateProgressBars(){
-    const checkboxes = qsa('input[type="checkbox"]');
-    const total = checkboxes.length;
-    const checked = checkboxes.filter(x=>x.checked).length;
-    const pct = total? Math.round(checked/total*100) : 0;
-    // bars
-    [["overallBar1","overallPct1"],["overallBar2","overallPct2"]].forEach(([bar,txt])=>{
-      const b = qs("#"+bar); const t = qs("#"+txt);
-      if(b) b.style.width = pct+"%";
-      if(t) t.textContent = pct+"%";
-    });
-    // per row
-    state.tasks.forEach((_,r)=>{
-      const rowBoxes = [];
-      for(let d=1; d<=DAYS; d++){
-        const el = document.getElementById(key(r,d));
-        if(el) rowBoxes.push(el);
-      }
-      const p = rowBoxes.length ? Math.round(rowBoxes.filter(b=>b.checked).length/rowBoxes.length*100) : 0;
-      qsa(`.cell.name[data-row="${r}"] .rowpct`).forEach(n=> n.textContent = p+"%");
-    });
-  }
-
-  /* ---------- Rendering both pages ---------- */
-  function renderAll(){
-    buildSheet("sheet1", true);
-    buildSheet("sheet2", false);
-    updateProgressBars();
-  }
-
-  /* ---------- Mode switching ---------- */
-  function show(sectionId){
-    qs("#modePicker").classList.add("hidden");
-    qs("#editPage").classList.add("hidden");
-    qs("#viewPage").classList.add("hidden");
-    qs("#"+sectionId).classList.remove("hidden");
-  }
-
-  /* ---------- Print only sheet ---------- */
-  function printSheet(sheetCardId){
-    // Ensure only that card has "printable" (already set), trigger print
-    window.print();
-  }
-
-  /* ---------- Fullscreen ---------- */
-  function toggleFullscreen(){
-    const root = document.documentElement;
-    if(!document.fullscreenElement){ root.requestFullscreen?.(); }
-    else{ document.exitFullscreen?.(); }
-  }
-
-  /* ---------- Event wiring ---------- */
-  function wire(){
-    // Mode buttons
-    qs("#goEdit").onclick = ()=> show("editPage");
-    qs("#goView").onclick = ()=> show("viewPage");
-    qs("#modeEditBtn").onclick = ()=> show("editPage");
-    qs("#modeViewBtn").onclick = ()=> show("viewPage");
-
-    // Print buttons (sheet only)
-    qs("#exportPrint1").onclick = ()=> printSheet("sheetCard1");
-    qs("#exportPrint2").onclick = ()=> printSheet("sheetCard2");
-
-    // Theme toggle
-    qs("#toggleTheme").onclick = ()=>{
-      const root = document.documentElement;
-      root.classList.toggle("light");
-      pref.theme = root.classList.contains("light") ? "light" : "dark";
-      savePref();
-    };
-
-    // Fullscreen
-    qs("#fullscreenBtn").onclick = toggleFullscreen;
-
-    // Gradient controls
-    const c1=qs("#c1"), c2=qs("#c2"), ang=qs("#angle"), aVal=qs("#angleVal"), sw=qs(".swatch");
-    function updPreview(){
-      sw.style.background = `linear-gradient(${ang.value}deg, ${c1.value}, ${c2.value})`;
-      aVal.textContent = ang.value+"°";
-    }
-    ["input","change"].forEach(e=>{
-      c1.addEventListener(e,updPreview); c2.addEventListener(e,updPreview); ang.addEventListener(e,updPreview);
-    });
-    qs("#applyGrad").onclick = ()=>{
-      setCSS({"--brand":c1.value,"--brand-2":c2.value,"--grad-angle":ang.value+"deg"});
-      const t = readTheme() || {};
-      writeTheme({...t, c1:c1.value, c2:c2.value, a:Number(ang.value), pageBg: t.pageBg, light: document.documentElement.classList.contains("light")});
-    };
-    qs("#genGrad").onclick = ()=>{
-      const rnd = ()=>"#"+Math.floor(Math.random()*0xffffff).toString(16).padStart(6,"0");
-      c1.value=rnd(); c2.value=rnd(); ang.value=Math.floor(Math.random()*361); updPreview();
-      qs("#applyGrad").click();
-    };
-
-    // Page background
-    const pageBg = qs("#pageBg");
-    const themeSaved = readTheme();
-    pageBg.value = themeSaved?.pageBg || rgbToHex(window.getComputedStyle(document.body).backgroundColor) || "#0f172a";
-    pageBg.addEventListener("input", ()=>{
-      document.body.style.backgroundColor = pageBg.value;
-      const t = readTheme() || {};
-      writeTheme({...t, pageBg: pageBg.value, c1: getVar("--brand"), c2:getVar("--brand-2"), a: parseInt(getVar("--grad-angle"))||135, light: document.documentElement.classList.contains("light")});
-    });
-
-    // Reset theme
-    qs("#resetTheme").onclick = ()=>{
-      document.documentElement.classList.remove("light");
-      setCSS({"--brand":"#0ea5e9","--brand-2":"#22c55e","--grad-angle":"135deg"});
-      document.body.style.backgroundColor = "";
-      writeTheme({c1:"#0ea5e9", c2:"#22c55e", a:135, pageBg:null, light:false});
-      pageBg.value = rgbToHex(window.getComputedStyle(document.body).backgroundColor) || "#0f172a";
-      updPreview();
-    };
-
-    // Add Task
-    qs("#addTask").onclick = ()=>{
-      const val = qs("#newTask").value.trim();
-      if(!val) return;
-      state.tasks.push(val);
-      qs("#newTask").value="";
-      save();
-      renderAll();
-    };
-
-    // Enter to add
-    qs("#newTask").addEventListener("keydown", e=>{
-      if(e.key==="Enter"){ e.preventDefault(); qs("#addTask").click(); }
-    });
-  }
-
-  function rgbToHex(rgb){
-    // "rgb(15, 23, 42)" -> "#0f172a"
-    const m = String(rgb).match(/(\d+),\s*(\d+),\s*(\d+)/);
-    if(!m) return null;
-    return "#"+[m[1],m[2],m[3]].map(x=> Number(x).toString(16).padStart(2,"0")).join("");
-  }
-
-  /* ---------- Init ---------- */
-  load();
-  applyThemeFromStored();
-  renderAll();
-  wire();
-
-})();
-</script>
+    <script src="script.js"></script>
 </body>
-</html>
+</html> 
