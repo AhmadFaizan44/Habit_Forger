@@ -1,6 +1,6 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 4.0 (Shared Habits + Dual-Pass Admin)
+ * Version: 4.1 (Syntax Fixes & New Security)
  */
 
 // --- FIREBASE CONFIGURATION ---
@@ -24,8 +24,8 @@ try {
 }
 
 // --- CONSTANTS & ADMIN SECURITY ---
-const UNIVERSAL_ADMIN_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"; // SHA-256 of 'admin' (Simplified for demo)
-// Note: In production, use "ForgeMaster2024!" -> Hash. For this demo, we use a simple hash check function.
+// SHA-256 Hash for 'godfather1972'
+const UNIVERSAL_ADMIN_HASH = "89934ea55110ebd089448fc84d668a828904257d138fadb0fbc9bfd8227d109d"; 
 
 const app = (() => {
     // --- State Management ---
@@ -147,7 +147,6 @@ const app = (() => {
             if (doc.exists) {
                 const cloudData = doc.data();
                 state = { ...defaultData, ...cloudData };
-                // Deep merge settings if needed, simplified here
                 saveData(); 
                 navigate(viewState.activeView); 
                 applyTheme();
@@ -474,4 +473,373 @@ const app = (() => {
     };
 
     const deleteHabit = (id) => {
-        if(confirm('De
+        if(confirm('Delete this habit?')) {
+            state.habits = state.habits.filter(h => h.id !== id);
+            saveData();
+            renderSettings();
+        }
+    };
+
+    const resetData = (scope) => {
+        if(!confirm('Are you sure? This action cannot be undone.')) return;
+        if (scope === 'all') {
+            state.records = {};
+            state.sharedRecords = {};
+        }
+        saveData();
+        navigate('tracker');
+    };
+
+    // --- ADMIN PANEL LOGIC ---
+
+    // 1. Auth
+    async function sha256(message) {
+        const msgBuffer = new TextEncoder().encode(message);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    const adminLogin = async () => {
+        const input = document.getElementById('admin-password-input').value;
+        const errorMsg = document.getElementById('admin-login-error');
+        
+        // 1. Check Universal (Hash Check)
+        const inputHash = await sha256(input);
+        const isUniversal = (inputHash === UNIVERSAL_ADMIN_HASH);
+
+        // 2. Check Resettable (Direct Check)
+        const isResettable = (input === globalState.adminSettings.resettablePass);
+
+        if (isUniversal || isResettable) {
+            isAdminLoggedIn = true;
+            errorMsg.classList.add('hidden');
+            document.getElementById('admin-password-input').value = '';
+            navigate('admin-panel');
+            renderAdminPanel(); // Force render
+        } else {
+            errorMsg.classList.remove('hidden');
+        }
+    };
+
+    const adminLogout = () => {
+        isAdminLoggedIn = false;
+        navigate('admin-login');
+    };
+
+    const switchAdminTab = (tab) => {
+        document.querySelectorAll('.admin-subview').forEach(el => el.classList.add('hidden'));
+        document.getElementById(`admin-section-${tab}`).classList.remove('hidden');
+        
+        document.querySelectorAll('[id^="tab-admin-"]').forEach(el => el.classList.remove('admin-tab-active'));
+        document.getElementById(`tab-admin-${tab}`).classList.add('admin-tab-active');
+
+        if(tab === 'tracker') fetchAndRenderUserList();
+        if(tab === 'ranking') renderAdminRankings();
+        if(tab === 'settings') renderAdminSettings();
+    };
+
+    const renderAdminPanel = () => {
+        if(!isAdminLoggedIn) return navigate('admin-login');
+        // Default to tracker tab
+        switchAdminTab('tracker');
+    };
+
+    // 2. Admin Tracker
+    const fetchAndRenderUserList = async () => {
+        const listEl = document.getElementById('admin-user-list');
+        listEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
+        
+        if(!db) {
+            listEl.innerHTML = "Mock User (No Cloud DB)";
+            return;
+        }
+
+        try {
+            const usersSnap = await db.collection('users').get();
+            let html = '';
+            usersSnap.forEach(doc => {
+                const uData = doc.data();
+                const displayName = uData.profile?.email || doc.id.substring(0,8) + "...";
+                // Sanitize single quotes for HTML attribute
+                const safeName = displayName.replace(/'/g, "\\'");
+                
+                html += `<div onclick="app.loadUserAdminStats('${doc.id}', '${safeName}')" class="p-2 border rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 text-sm flex items-center justify-between">
+                    <span>${displayName}</span> <i class="fa-solid fa-chevron-right text-xs"></i>
+                </div>`;
+            });
+            listEl.innerHTML = html || "No users found.";
+        } catch (e) {
+            console.error(e);
+            listEl.innerHTML = "Error fetching users (Permission denied?)";
+        }
+    };
+
+    const loadUserAdminStats = async (uid, name) => {
+        document.getElementById('admin-select-prompt').classList.add('hidden');
+        document.getElementById('admin-user-stats-container').classList.remove('hidden');
+        document.getElementById('admin-selected-user-name').innerText = name;
+
+        try {
+            const doc = await db.collection('users').doc(uid).get();
+            const uData = doc.data() || defaultData;
+            const sharedRecs = uData.sharedRecords || {};
+            
+            // Render Table
+            const tbody = document.getElementById('admin-user-stats-body');
+            tbody.innerHTML = '';
+            
+            const currentMonthKey = new Date().toISOString().substring(0, 7); // YYYY-MM
+            
+            globalState.sharedHabits.forEach(habit => {
+                let monthCount = 0;
+                let totalCount = 0;
+                
+                Object.keys(sharedRecs).forEach(dateKey => {
+                    if(sharedRecs[dateKey].includes(habit.id)) {
+                        totalCount++;
+                        if(dateKey.startsWith(currentMonthKey)) monthCount++;
+                    }
+                });
+
+                tbody.innerHTML += `
+                    <tr class="border-b dark:border-gray-700">
+                        <td class="p-3 font-medium">${habit.name}</td>
+                        <td class="p-3 text-center">${monthCount}</td>
+                        <td class="p-3 text-center font-bold text-violet-600">${totalCount}</td>
+                    </tr>
+                `;
+            });
+
+            // Render Admin Chart (Reuse logic)
+            // Show aggregate performance for this user across shared habits
+            const ctx = document.getElementById('adminUserChart').getContext('2d');
+            if(viewState.adminChartInstance) viewState.adminChartInstance.destroy();
+            
+            // Last 6 months simplified
+            viewState.adminChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: globalState.sharedHabits.map(h => h.name),
+                    datasets: [{
+                        label: 'Total Completions',
+                        data: globalState.sharedHabits.map(h => {
+                            let count = 0;
+                            Object.values(sharedRecs).forEach(arr => { if(arr.includes(h.id)) count++; });
+                            return count;
+                        }),
+                        backgroundColor: '#8B5CF6'
+                    }]
+                },
+                options: { responsive: true }
+            });
+
+        } catch(e) { console.error(e); }
+    };
+
+    // 3. Admin Ranking
+    const renderAdminRankings = async () => {
+        const habitSelect = document.getElementById('admin-rank-habit');
+        const monthInput = document.getElementById('admin-rank-month');
+        
+        // Populate Habits if empty
+        if(habitSelect.options.length === 0) {
+            habitSelect.innerHTML = globalState.sharedHabits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
+        }
+
+        const selectedHabitId = habitSelect.value;
+        const selectedMonth = monthInput.value; // YYYY-MM
+        const tbody = document.getElementById('admin-ranking-body');
+        tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center">Calculating...</td></tr>';
+
+        if(!db) return;
+
+        try {
+            const snapshot = await db.collection('users').get();
+            let rankings = [];
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const shared = data.sharedRecords || {};
+                let count = 0;
+                
+                Object.keys(shared).forEach(date => {
+                    if(date.startsWith(selectedMonth) && shared[date].includes(selectedHabitId)) {
+                        count++;
+                    }
+                });
+
+                if(count > 0) {
+                    rankings.push({ 
+                        email: data.profile?.email || "User " + doc.id.substring(0,5), 
+                        count 
+                    });
+                }
+            });
+
+            // Sort
+            rankings.sort((a, b) => b.count - a.count);
+
+            // Render
+            tbody.innerHTML = '';
+            if(rankings.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500">No activity recorded for this period.</td></tr>';
+                return;
+            }
+
+            rankings.forEach((r, idx) => {
+                // FIXED: Simplified logic to avoid nested template literal errors
+                let rankHtml = '';
+                if (idx < 3) {
+                    const color = idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'orange';
+                    rankHtml = `<i class="fa-solid fa-medal text-${color}-500"></i>`;
+                } else {
+                    rankHtml = idx + 1;
+                }
+
+                tbody.innerHTML += `
+                    <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td class="p-4 font-bold">${rankHtml}</td>
+                        <td class="p-4">${r.email}</td>
+                        <td class="p-4 text-right font-mono font-bold">${r.count}</td>
+                    </tr>
+                `;
+            });
+
+        } catch(e) { console.error(e); }
+    };
+
+    // 4. Admin Settings
+    const renderAdminSettings = () => {
+        const list = document.getElementById('admin-shared-habits-list');
+        list.innerHTML = globalState.sharedHabits.map(h => `
+            <div class="flex justify-between items-center p-3 border rounded bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
+                <span class="font-medium">${h.name}</span>
+                <span class="text-xs text-gray-500 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded">ID: ${h.id}</span>
+            </div>
+        `).join('');
+    };
+
+    const addSharedHabit = () => {
+        const name = document.getElementById('new-shared-habit-name').value;
+        if(!name) return;
+        
+        const newId = `shared_${Date.now()}`;
+        globalState.sharedHabits.push({ id: newId, name });
+        saveGlobalData();
+        renderAdminSettings();
+        document.getElementById('new-shared-habit-name').value = '';
+        alert("Shared habit added globally.");
+    };
+
+    const updateAdminPassword = () => {
+        const oldPass = document.getElementById('admin-old-pass').value;
+        const newPass = document.getElementById('admin-new-pass').value;
+
+        if(oldPass !== globalState.adminSettings.resettablePass) {
+            alert("Incorrect current password.");
+            return;
+        }
+        
+        globalState.adminSettings.resettablePass = newPass;
+        saveGlobalData();
+        alert("Resettable password updated.");
+        document.getElementById('admin-old-pass').value = '';
+        document.getElementById('admin-new-pass').value = '';
+    };
+
+    // --- Profile Helper ---
+    const updateProfileUI = (user) => {
+        const authForms = document.getElementById('auth-forms');
+        const profileInfo = document.getElementById('profile-info');
+        const userStatusText = document.getElementById('user-status-text');
+
+        if (user) {
+            authForms.classList.add('hidden');
+            profileInfo.classList.remove('hidden');
+            document.getElementById('profile-name').innerText = user.displayName || "User";
+            document.getElementById('profile-email').innerText = user.email;
+            document.getElementById('profile-pic').src = user.photoURL || `https://ui-avatars.com/api/?name=${user.email}&background=8B5CF6&color=fff`;
+            userStatusText.innerText = "Online";
+        } else {
+            authForms.classList.remove('hidden');
+            profileInfo.classList.add('hidden');
+            userStatusText.innerText = "Guest Mode";
+        }
+    };
+
+    const renderHeader = () => {
+        const today = new Date();
+        document.getElementById('current-date-display').innerText = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+        
+        const key = formatDateKey(today);
+        const totalHabits = state.habits.length;
+        const completedToday = state.records[key] ? state.records[key].length : 0;
+        const monthKey = key.substring(0, 7);
+        const daysPassed = today.getDate();
+        const totalPossible = daysPassed * totalHabits;
+        let totalDoneMonth = 0;
+        for(let d=1; d<=daysPassed; d++) {
+             const k = `${monthKey}-${String(d).padStart(2, '0')}`;
+             if(state.records[k]) totalDoneMonth += state.records[k].length;
+        }
+
+        const todayPct = totalHabits === 0 ? 0 : Math.round((completedToday / totalHabits) * 100);
+        const monthPct = totalPossible === 0 ? 0 : Math.round((totalDoneMonth / totalPossible) * 100);
+
+        document.getElementById('today-progress').innerText = `${todayPct}%`;
+        document.getElementById('month-progress').innerText = `${monthPct}%`;
+    };
+
+    const renderSidebar = () => {
+        const btn = document.getElementById('mobile-menu-btn');
+        const sidebar = document.getElementById('sidebar');
+        btn.onclick = () => { sidebar.classList.toggle('-translate-x-full'); };
+    };
+    
+    const setupEventListeners = () => {
+        window.addEventListener('resize', () => { if(viewState.activeView === 'analytics') renderAnalytics(); });
+    };
+
+    return {
+        init, navigate, changeMonth, changeSharedMonth, toggleHabit, toggleSharedHabit,
+        renderAnalytics, handlePeriodChange, updateAccent, toggleDarkMode, updateHabitName, 
+        addHabit, deleteHabit, resetData, toggleSidebar,
+        
+        // Admin Exports
+        adminLogin, adminLogout, switchAdminTab, loadUserAdminStats, renderAdminRankings,
+        addSharedHabit, updateAdminPassword
+    };
+
+})();
+
+const authManager = {
+    signInGoogle: () => {
+        if(!auth) return alert("Firebase not configured");
+        const provider = new firebase.auth.GoogleAuthProvider();
+        auth.signInWithPopup(provider).catch(e => alert(e.message));
+    },
+    handleEmailAuth: () => {
+        if(!auth) return alert("Firebase not configured");
+        const email = document.getElementById('auth-email').value;
+        const pass = document.getElementById('auth-password').value;
+        const errorMsg = document.getElementById('auth-error');
+        
+        if(window.authMode === 'register') {
+            auth.createUserWithEmailAndPassword(email, pass)
+                .then((cred) => {
+                    // Initialize user profile doc
+                    db.collection('users').doc(cred.user.uid).set({
+                        profile: { email: email }
+                    }, { merge: true });
+                })
+                .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
+        } else {
+            auth.signInWithEmailAndPassword(email, pass)
+                .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
+        }
+    },
+    logout: () => auth.signOut()
+};
+
+document.addEventListener('DOMContentLoaded', app.init);
