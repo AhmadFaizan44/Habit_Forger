@@ -1,6 +1,6 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 6.0 (Sync Fix & Permission Handling)
+ * Version: 4.2 (Syntax Fixed & Robust Hashing)
  */
 
 // --- FIREBASE CONFIGURATION ---
@@ -24,34 +24,34 @@ try {
 }
 
 // --- CONSTANTS & ADMIN SECURITY ---
+// SHA-256 Hash for 'godfather1972'
 const UNIVERSAL_ADMIN_HASH = "89934ea55110ebd089448fc84d668a828904257d138fadb0fbc9bfd8227d109d";
 
 const app = (() => {
     // --- State Management ---
-    const defaultUserData = {
+    const defaultData = {
         habits: [
             { id: 1, name: "Morning Gym" },
             { id: 2, name: "Read 30 Mins" },
             { id: 3, name: "Drink 2L Water" }
         ],
-        records: {}, 
-        sharedRecords: {},
+        records: {}, // Personal Records
+        sharedRecords: {}, // { 'YYYY-MM-DD': ['shared_1'] } - Tracks completion of shared habits
         settings: { theme: 'light', accent: '#8B5CF6' }
     };
 
-    const defaultGlobalData = {
+    // Global Admin Data (Synced from 'admin/config' doc)
+    let globalState = {
         sharedHabits: [
             { id: 'shared_1', name: "Global: 10k Steps" },
             { id: 'shared_2', name: "Global: No Sugar" }
         ],
         adminSettings: {
-            resettablePass: "admin123"
+            resettablePass: "admin123" // Default Resettable Password
         }
     };
 
-    let state = JSON.parse(JSON.stringify(defaultUserData));
-    let globalState = JSON.parse(JSON.stringify(defaultGlobalData));
-    
+    let state = defaultData;
     let currentUser = null;
     let isAdminLoggedIn = false;
     
@@ -68,60 +68,31 @@ const app = (() => {
     // --- Core Functions ---
 
     const init = async () => {
-        // 1. Load Local Fallbacks
-        loadLocalData();
-
-        // 2. Initial Cloud Attempt (Might fail if not logged in)
-        await syncGlobalData(); 
+        // Load local first
+        const local = localStorage.getItem('forge_data');
+        if(local) state = JSON.parse(local);
         
+        if(!state.sharedRecords) state.sharedRecords = {};
+
+        // Load Global Admin Data
+        await syncGlobalData();
+
         applyTheme();
         renderHeader();
         renderSidebar();
+        navigate('tracker');
+        
         setupDatePickers();
         setupEventListeners();
 
-        // 3. Auth Listener - CRITICAL FIX
+        // Check Firebase Auth
         if(auth) {
-            auth.onAuthStateChanged(async (user) => {
+            auth.onAuthStateChanged(user => {
                 currentUser = user;
                 updateProfileUI(user);
-                
-                if (user) {
-                    console.log("User logged in: Syncing ALL data...");
-                    // Sync User Data
-                    await syncDataFromCloud();
-                    // Sync Admin/Global Data (Now that we have permissions)
-                    await syncGlobalData();
-                    // Refresh Admin Views if open
-                    if(isAdminLoggedIn) {
-                        renderAdminSettings();
-                        renderAdminRankings();
-                    }
-                }
+                if (user) syncDataFromCloud();
             });
         }
-        
-        navigate('tracker');
-    };
-
-    const loadLocalData = () => {
-        const localUser = localStorage.getItem('forge_data');
-        if(localUser) state = JSON.parse(localUser);
-        if(!state.sharedRecords) state.sharedRecords = {};
-
-        const localGlobal = localStorage.getItem('forge_global_admin');
-        if(localGlobal) {
-            try {
-                const parsed = JSON.parse(localGlobal);
-                globalState = { ...defaultGlobalData, ...parsed };
-            } catch(e) { console.error("Local global corrupted"); }
-        }
-        ensureGlobalStructure();
-    };
-
-    const ensureGlobalStructure = () => {
-        if (!globalState.sharedHabits) globalState.sharedHabits = [];
-        if (!globalState.adminSettings) globalState.adminSettings = { resettablePass: "admin123" };
     };
 
     const setupDatePickers = () => {
@@ -132,57 +103,35 @@ const app = (() => {
             endInput.value = today;
             document.getElementById('date-start').value = lastWeek;
         }
-        const rankMonth = document.getElementById('admin-rank-month');
-        if(rankMonth) rankMonth.value = today.substring(0, 7);
+        document.getElementById('admin-rank-month').value = today.substring(0, 7);
     };
-
-    // --- DATA PERSISTENCE ---
 
     const saveData = () => {
         localStorage.setItem('forge_data', JSON.stringify(state));
         renderHeader();
         if (currentUser && db) {
             db.collection('users').doc(currentUser.uid).set(state, { merge: true })
-                .catch(err => console.error("Cloud User Save Error", err));
+                .catch(err => console.error("Cloud Save Error", err));
         }
     };
 
-    const saveGlobalData = async () => {
-        ensureGlobalStructure();
-        // 1. Save Local
-        localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
-        
-        // 2. Save Cloud
+    const saveGlobalData = () => {
         if(db) {
-            try {
-                await db.collection('admin').doc('config').set(globalState);
-                console.log("Global Admin Data saved to Cloud.");
-            } catch(err) {
-                console.error("Admin Save Failed", err);
-                alert("⚠️ Cloud Save Failed! \n\nYou might not be logged in or lack permissions. \nYour changes are saved LOCALLY on this device only.");
-            }
+            db.collection('admin').doc('config').set(globalState)
+                .catch(err => console.error("Admin Save Error", err));
         }
     };
 
     const syncGlobalData = async () => {
-        if(!db) return;
-        try {
-            const doc = await db.collection('admin').doc('config').get();
-            if(doc.exists) {
-                console.log("Global Admin Data fetched from Cloud.");
-                globalState = { ...defaultGlobalData, ...doc.data() };
-                ensureGlobalStructure();
-                // Update Local Cache
-                localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
-                // Refresh Shared View immediately
-                if(viewState.activeView === 'shared') renderSharedHabits();
-            } else {
-                console.log("No Global Config on Cloud. Attempting to upload local...");
-                // Only upload if we have data, otherwise we might overwrite cloud with defaults on a race condition
-                if(currentUser) saveGlobalData(); 
-            }
-        } catch(e) { 
-            console.warn("Could not fetch Global Admin data (Offline/Permission): Using Local."); 
+        if(db) {
+            try {
+                const doc = await db.collection('admin').doc('config').get();
+                if(doc.exists) {
+                    globalState = doc.data();
+                } else {
+                    saveGlobalData();
+                }
+            } catch(e) { console.log("Using default global state"); }
         }
     };
 
@@ -192,25 +141,24 @@ const app = (() => {
             const doc = await db.collection('users').doc(currentUser.uid).get();
             if (doc.exists) {
                 const cloudData = doc.data();
-                state = { ...defaultUserData, ...cloudData };
-                if(!state.sharedRecords) state.sharedRecords = {};
-                localStorage.setItem('forge_data', JSON.stringify(state));
+                state = { ...defaultData, ...cloudData };
+                saveData(); 
                 navigate(viewState.activeView); 
                 applyTheme();
             } else {
                 saveData();
             }
-        } catch (e) { console.error("User Sync error", e); }
+        } catch (e) { console.error("Sync error", e); }
     };
 
-    // --- HELPER ---
+    // --- Helper: Date Handling ---
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
     const formatDateKey = (date) => {
         const d = new Date(date);
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // --- NAVIGATION ---
+    // --- Sidebar & Nav ---
     const toggleSidebar = () => {
         viewState.isSidebarCollapsed = !viewState.isSidebarCollapsed;
         const sidebar = document.getElementById('sidebar');
@@ -231,11 +179,10 @@ const app = (() => {
         if(target) target.classList.remove('hidden');
 
         document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active-nav'));
-        const navs = document.querySelectorAll('.nav-btn');
-        if(viewName === 'tracker' && navs[0]) navs[0].classList.add('active-nav');
-        if(viewName === 'shared' && navs[1]) navs[1].classList.add('active-nav');
-        if(viewName === 'analytics' && navs[2]) navs[2].classList.add('active-nav');
-        if(viewName === 'settings' && navs[3]) navs[3].classList.add('active-nav');
+        if(viewName === 'tracker') document.querySelectorAll('.nav-btn')[0].classList.add('active-nav');
+        if(viewName === 'shared') document.querySelectorAll('.nav-btn')[1].classList.add('active-nav');
+        if(viewName === 'analytics') document.querySelectorAll('.nav-btn')[2].classList.add('active-nav');
+        if(viewName === 'settings') document.querySelectorAll('.nav-btn')[3].classList.add('active-nav');
 
         if (viewName === 'tracker') renderTracker();
         if (viewName === 'shared') renderSharedHabits();
@@ -244,7 +191,7 @@ const app = (() => {
         if (viewName === 'admin-panel') renderAdminPanel();
     };
 
-    // --- TRACKER & SHARED UI ---
+    // --- SECTION: TRACKER & SHARED ---
     const renderTracker = () => {
         const year = viewState.currentDate.getFullYear();
         const month = viewState.currentDate.getMonth();
@@ -255,20 +202,15 @@ const app = (() => {
         const year = viewState.sharedDate.getFullYear();
         const month = viewState.sharedDate.getMonth();
         const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        
-        const label = document.getElementById('shared-month-year');
-        if(label) label.innerText = `${monthNames[month]} ${year}`;
-        
+        document.getElementById('shared-month-year').innerText = `${monthNames[month]} ${year}`;
         renderGrid('shared-body', 'shared-header-row', null, year, month, globalState.sharedHabits, state.sharedRecords, true);
     };
 
     const renderGrid = (bodyId, headerId, titleId, year, month, habitsList, recordsObj, isShared) => {
         const daysInMonth = getDaysInMonth(year, month);
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
         
-        if(titleId) {
-            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-            document.getElementById(titleId).innerText = `${monthNames[month]} ${year}`;
-        }
+        if(titleId) document.getElementById(titleId).innerText = `${monthNames[month]} ${year}`;
 
         const headerRow = document.getElementById(headerId);
         let daysHtml = '<div class="flex gap-2 pb-2">';
@@ -290,12 +232,7 @@ const app = (() => {
         headerRow.innerHTML = daysHtml;
 
         const tbody = document.getElementById(bodyId);
-        
-        if(!habitsList || habitsList.length === 0) {
-            tbody.innerHTML = `<tr><td class="p-4 text-gray-400 italic">No habits found. ${isShared ? 'Wait for admin to add some.' : 'Add one in Settings!'}</td></tr>`;
-            return;
-        }
-
+        // Build HTML string first for performance and safety
         const rowsHtml = habitsList.map(habit => {
             let cellsHtml = '';
             for (let d = 1; d <= daysInMonth; d++) {
@@ -354,7 +291,7 @@ const app = (() => {
         saveData();
     };
 
-    // --- ANALYTICS ---
+    // --- SECTION: ANALYTICS ---
     const renderAnalyticsUI = () => {
         const select = document.getElementById('analytics-habit-select');
         let options = `<option value="all">All Habits (Aggregate)</option>`;
@@ -464,7 +401,7 @@ const app = (() => {
         return { labels, dataPoints, totalCompleted, totalPossible };
     };
 
-    // --- SETTINGS ---
+    // --- SECTION: SETTINGS ---
     const renderSettings = () => {
         document.getElementById('accent-picker').value = state.settings.accent;
         const list = document.getElementById('settings-habit-list');
@@ -537,27 +474,48 @@ const app = (() => {
         navigate('tracker');
     };
 
-    // --- ADMIN PANEL ---
+    // --- ADMIN PANEL LOGIC ---
+    
+    // Secure hashing using Web Crypto API with fallback for local file testing
     async function hashPassword(message) {
         const msgBuffer = new TextEncoder().encode(message);
-        if (window.crypto && window.crypto.subtle && window.location.protocol !== 'file:') {
+        if (window.crypto && window.crypto.subtle) {
             try {
                 const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
                 const hashArray = Array.from(new Uint8Array(hashBuffer));
                 return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            } catch (e) { console.warn("Crypto API failed."); }
+            } catch (e) { console.warn("Crypto API failed, falling back."); }
         }
-        return (message === "godfather1972") ? UNIVERSAL_ADMIN_HASH : "invalid";
+        // Fallback for file:// context where SubtleCrypto might be missing
+        // NOTE: This is for demo/local compatibility only.
+        return simpleHash(message); 
+    }
+
+    // Simple hash for local testing compatibility (if SubtleCrypto fails)
+    function simpleHash(str) {
+        // This is a placeholder logic to ensure the Universal Password works in file://
+        // Real logic matches the SHA256 above if environment supports it.
+        // For this demo: If we can't use crypto, we assume it's a dev env.
+        if(str === "godfather1972") return UNIVERSAL_ADMIN_HASH; 
+        return "invalid";
     }
 
     const adminLogin = async () => {
         const input = document.getElementById('admin-password-input').value;
         const errorMsg = document.getElementById('admin-login-error');
         
-        const inputHash = await hashPassword(input);
-        ensureGlobalStructure();
+        // 1. Check Universal
+        let inputHash;
+        if(window.crypto && window.crypto.subtle && window.location.protocol !== 'file:') {
+             inputHash = await hashPassword(input);
+        } else {
+             // Bypass for local testing if needed
+             inputHash = (input === "godfather1972") ? UNIVERSAL_ADMIN_HASH : "wrong";
+        }
 
         const isUniversal = (inputHash === UNIVERSAL_ADMIN_HASH);
+
+        // 2. Check Resettable
         const isResettable = (input === globalState.adminSettings.resettablePass);
 
         if (isUniversal || isResettable) {
@@ -598,7 +556,7 @@ const app = (() => {
         listEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
         
         if(!db) {
-            listEl.innerHTML = "<div class='p-2 text-sm text-gray-500'>Cloud inactive. Showing only local demo.</div>";
+            listEl.innerHTML = "Mock User (No Cloud DB)";
             return;
         }
 
@@ -608,7 +566,7 @@ const app = (() => {
             usersSnap.forEach(doc => {
                 const uData = doc.data();
                 const displayName = uData.profile?.email || doc.id.substring(0,8) + "...";
-                const safeName = displayName.replace(/'/g, "\\'");
+                const safeName = displayName.replace(/'/g, "\\'"); // Escape quotes
                 
                 userHtml += `<div onclick="app.loadUserAdminStats('${doc.id}', '${safeName}')" class="p-2 border rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 text-sm flex items-center justify-between">
                     <span>${displayName}</span> <i class="fa-solid fa-chevron-right text-xs"></i>
@@ -617,7 +575,7 @@ const app = (() => {
             listEl.innerHTML = userHtml || "No users found.";
         } catch (e) {
             console.error(e);
-            listEl.innerHTML = "Error fetching users (Check permissions)";
+            listEl.innerHTML = "Error fetching users (Permission denied?)";
         }
     };
 
@@ -628,7 +586,7 @@ const app = (() => {
 
         try {
             const doc = await db.collection('users').doc(uid).get();
-            const uData = doc.data() || defaultUserData;
+            const uData = doc.data() || defaultData;
             const sharedRecs = uData.sharedRecords || {};
             
             const tbody = document.getElementById('admin-user-stats-body');
@@ -683,69 +641,75 @@ const app = (() => {
         const habitSelect = document.getElementById('admin-rank-habit');
         const monthInput = document.getElementById('admin-rank-month');
         
-        habitSelect.innerHTML = globalState.sharedHabits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
+        if(habitSelect.options.length === 0) {
+            habitSelect.innerHTML = globalState.sharedHabits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
+        }
 
         const selectedHabitId = habitSelect.value;
         const selectedMonth = monthInput.value; 
         const tbody = document.getElementById('admin-ranking-body');
-        
-        if(!selectedHabitId) {
-             tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center">No shared habits defined. Add some in Admin Settings!</td></tr>';
-             return;
-        }
-
         tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center">Calculating...</td></tr>';
 
-        let rankings = [];
-        if(db) {
-            try {
-                const snapshot = await db.collection('users').get();
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    const shared = data.sharedRecords || {};
-                    let count = 0;
-                    Object.keys(shared).forEach(date => {
-                        if(date.startsWith(selectedMonth) && shared[date].includes(selectedHabitId)) {
-                            count++;
-                        }
-                    });
-                    if(count > 0) {
-                        rankings.push({ email: data.profile?.email || "User " + doc.id.substring(0,5), count });
+        if(!db) return;
+
+        try {
+            const snapshot = await db.collection('users').get();
+            let rankings = [];
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const shared = data.sharedRecords || {};
+                let count = 0;
+                
+                Object.keys(shared).forEach(date => {
+                    if(date.startsWith(selectedMonth) && shared[date].includes(selectedHabitId)) {
+                        count++;
                     }
                 });
-            } catch(e) { console.warn("Ranking DB fetch failed (Offline?)"); }
-        }
 
-        rankings.sort((a, b) => b.count - a.count);
+                if(count > 0) {
+                    rankings.push({ 
+                        email: data.profile?.email || "User " + doc.id.substring(0,5), 
+                        count 
+                    });
+                }
+            });
 
-        if(rankings.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500">No data found for this period.</td></tr>';
-            return;
-        }
+            rankings.sort((a, b) => b.count - a.count);
 
-        tbody.innerHTML = rankings.map((r, idx) => {
-            let rankHtml = (idx + 1).toString();
-            if (idx < 3) {
-                const color = idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'orange';
-                rankHtml = `<i class="fa-solid fa-medal text-${color}-500"></i>`;
+            if(rankings.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500">No activity recorded for this period.</td></tr>';
+                return;
             }
-            return `
-                <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td class="p-4 font-bold">${rankHtml}</td>
-                    <td class="p-4">${r.email}</td>
-                    <td class="p-4 text-right font-mono font-bold">${r.count}</td>
-                </tr>
-            `;
-        }).join('');
+
+            // Safe String Building
+            const rows = rankings.map((r, idx) => {
+                let rankHtml = (idx + 1).toString();
+                if (idx < 3) {
+                    const color = idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'orange';
+                    rankHtml = `<i class="fa-solid fa-medal text-${color}-500"></i>`;
+                }
+                
+                return `
+                    <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td class="p-4 font-bold">${rankHtml}</td>
+                        <td class="p-4">${r.email}</td>
+                        <td class="p-4 text-right font-mono font-bold">${r.count}</td>
+                    </tr>
+                `;
+            }).join('');
+            
+            tbody.innerHTML = rows;
+
+        } catch(e) { console.error(e); }
     };
 
     const renderAdminSettings = () => {
         const list = document.getElementById('admin-shared-habits-list');
         list.innerHTML = globalState.sharedHabits.map(h => `
-            <div class="flex gap-2 items-center mb-2">
-                <input type="text" value="${h.name}" id="shared-habit-name-${h.id}" class="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600">
-                <button onclick="app.updateSharedHabitName('${h.id}')" class="text-green-500 p-2 hover:bg-green-50 rounded" title="Save Name"><i class="fa-solid fa-save"></i></button>
-                <button onclick="app.deleteSharedHabit('${h.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded" title="Delete Habit"><i class="fa-solid fa-trash"></i></button>
+            <div class="flex justify-between items-center p-3 border rounded bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
+                <span class="font-medium">${h.name}</span>
+                <span class="text-xs text-gray-500 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded">ID: ${h.id}</span>
             </div>
         `).join('');
     };
@@ -753,47 +717,32 @@ const app = (() => {
     const addSharedHabit = () => {
         const name = document.getElementById('new-shared-habit-name').value;
         if(!name) return;
+        
         const newId = `shared_${Date.now()}`;
         globalState.sharedHabits.push({ id: newId, name });
-        saveGlobalData(); 
+        saveGlobalData();
         renderAdminSettings();
         document.getElementById('new-shared-habit-name').value = '';
         alert("Shared habit added globally.");
     };
 
-    const updateSharedHabitName = (id) => {
-        const input = document.getElementById(`shared-habit-name-${id}`);
-        const habit = globalState.sharedHabits.find(h => h.id === id);
-        if(habit) {
-            habit.name = input.value;
-            saveGlobalData(); 
-            alert('Global habit name updated!');
-        }
-    };
-
-    const deleteSharedHabit = (id) => {
-        if(confirm('Delete this global habit? This will remove it for all users.')) {
-            globalState.sharedHabits = globalState.sharedHabits.filter(h => h.id !== id);
-            saveGlobalData(); 
-            renderAdminSettings();
-        }
-    };
-
     const updateAdminPassword = () => {
+        const oldPass = document.getElementById('admin-old-pass').value;
         const newPass = document.getElementById('admin-new-pass').value;
 
-        if(!newPass) {
-            alert("Please enter a new password.");
+        if(oldPass !== globalState.adminSettings.resettablePass) {
+            alert("Incorrect current password.");
             return;
         }
         
-        ensureGlobalStructure(); 
         globalState.adminSettings.resettablePass = newPass;
-        saveGlobalData(); 
-        alert("Resettable password updated successfully to: " + newPass);
+        saveGlobalData();
+        alert("Resettable password updated.");
+        document.getElementById('admin-old-pass').value = '';
         document.getElementById('admin-new-pass').value = '';
     };
 
+    // --- Profile Helper ---
     const updateProfileUI = (user) => {
         const authForms = document.getElementById('auth-forms');
         const profileInfo = document.getElementById('profile-info');
@@ -836,13 +785,24 @@ const app = (() => {
         document.getElementById('month-progress').innerText = `${monthPct}%`;
     };
 
+    const renderSidebar = () => {
+        const btn = document.getElementById('mobile-menu-btn');
+        const sidebar = document.getElementById('sidebar');
+        btn.onclick = () => { sidebar.classList.toggle('-translate-x-full'); };
+    };
+    
+    const setupEventListeners = () => {
+        window.addEventListener('resize', () => { if(viewState.activeView === 'analytics') renderAnalytics(); });
+    };
+
     return {
         init, navigate, changeMonth, changeSharedMonth, toggleHabit, toggleSharedHabit,
         renderAnalytics, handlePeriodChange, updateAccent, toggleDarkMode, updateHabitName, 
         addHabit, deleteHabit, resetData, toggleSidebar,
         
+        // Admin Exports
         adminLogin, adminLogout, switchAdminTab, loadUserAdminStats, renderAdminRankings,
-        addSharedHabit, updateSharedHabitName, deleteSharedHabit, updateAdminPassword
+        addSharedHabit, updateAdminPassword
     };
 
 })();
@@ -862,7 +822,9 @@ const authManager = {
         if(window.authMode === 'register') {
             auth.createUserWithEmailAndPassword(email, pass)
                 .then((cred) => {
-                    db.collection('users').doc(cred.user.uid).set({ profile: { email: email } }, { merge: true });
+                    db.collection('users').doc(cred.user.uid).set({
+                        profile: { email: email }
+                    }, { merge: true });
                 })
                 .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
         } else {
@@ -873,4 +835,5 @@ const authManager = {
     logout: () => auth.signOut()
 };
 
+// Initialize App
 document.addEventListener('DOMContentLoaded', app.init);
