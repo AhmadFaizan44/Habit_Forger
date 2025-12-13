@@ -1,6 +1,6 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 5.1 (Password Input Logic Simplified)
+ * Version: 5.2 (Robust Password Update Fix)
  */
 
 // --- FIREBASE CONFIGURATION ---
@@ -29,19 +29,19 @@ const UNIVERSAL_ADMIN_HASH = "89934ea55110ebd089448fc84d668a828904257d138fadb0fb
 const app = (() => {
     // --- State Management ---
     
-    // 1. User Data (Personal)
+    // 1. User Data
     const defaultUserData = {
         habits: [
             { id: 1, name: "Morning Gym" },
             { id: 2, name: "Read 30 Mins" },
             { id: 3, name: "Drink 2L Water" }
         ],
-        records: {}, // { 'YYYY-MM-DD': [1, 2] }
-        sharedRecords: {}, // { 'YYYY-MM-DD': ['shared_1'] }
+        records: {}, 
+        sharedRecords: {},
         settings: { theme: 'light', accent: '#8B5CF6' }
     };
 
-    // 2. Global Admin Data (Universal)
+    // 2. Global Admin Data
     const defaultGlobalData = {
         sharedHabits: [
             { id: 'shared_1', name: "Global: 10k Steps" },
@@ -52,8 +52,8 @@ const app = (() => {
         }
     };
 
-    let state = defaultUserData; // Current User State
-    let globalState = defaultGlobalData; // Shared Admin State
+    let state = defaultUserData;
+    let globalState = JSON.parse(JSON.stringify(defaultGlobalData)); // Deep copy to prevent ref issues
     
     let currentUser = null;
     let isAdminLoggedIn = false;
@@ -71,19 +71,26 @@ const app = (() => {
     // --- Core Functions ---
 
     const init = async () => {
-        // 1. Load User Data (Local)
+        // 1. Load User Data
         const localUser = localStorage.getItem('forge_data');
         if(localUser) state = JSON.parse(localUser);
         if(!state.sharedRecords) state.sharedRecords = {};
 
-        // 2. Load Global Data (Local Fallback)
+        // 2. Load Global Data
         const localGlobal = localStorage.getItem('forge_global_admin');
-        if(localGlobal) globalState = JSON.parse(localGlobal);
+        if(localGlobal) {
+            try {
+                const parsed = JSON.parse(localGlobal);
+                globalState = { ...defaultGlobalData, ...parsed }; // Merge to ensure structure
+            } catch(e) { console.error("Local global data corrupted"); }
+        }
+
+        // Ensure Structure Exists (Critical Fix)
+        ensureGlobalStructure();
 
         // 3. Try Cloud Sync
-        await syncGlobalData(); // Fetch latest admin config from cloud
+        await syncGlobalData(); 
         
-        // 4. UI Init
         applyTheme();
         renderHeader();
         renderSidebar();
@@ -91,7 +98,6 @@ const app = (() => {
         setupDatePickers();
         setupEventListeners();
 
-        // 5. Auth Listener
         if(auth) {
             auth.onAuthStateChanged(user => {
                 currentUser = user;
@@ -100,67 +106,63 @@ const app = (() => {
             });
         }
         
-        // Start at tracker
         navigate('tracker');
+    };
+
+    const ensureGlobalStructure = () => {
+        if (!globalState.sharedHabits) globalState.sharedHabits = [];
+        if (!globalState.adminSettings) globalState.adminSettings = { resettablePass: "admin123" };
     };
 
     const setupDatePickers = () => {
         const today = new Date().toISOString().split('T')[0];
         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        
         const endInput = document.getElementById('date-end');
         if(endInput) {
             endInput.value = today;
             document.getElementById('date-start').value = lastWeek;
         }
-        
         const rankMonth = document.getElementById('admin-rank-month');
         if(rankMonth) rankMonth.value = today.substring(0, 7);
     };
 
-    // --- PERSISTENCE LAYERS ---
+    // --- PERSISTENCE ---
 
-    // Save User Data (Personal)
     const saveData = () => {
-        // Local
         localStorage.setItem('forge_data', JSON.stringify(state));
         renderHeader();
-        
-        // Cloud
         if (currentUser && db) {
             db.collection('users').doc(currentUser.uid).set(state, { merge: true })
                 .catch(err => console.error("Cloud User Save Error", err));
         }
     };
 
-    // Save Global Data (Admin) - UNIVERSAL FIX
     const saveGlobalData = () => {
-        // 1. Save Local (Immediate Update for current user/admin)
+        ensureGlobalStructure();
+        // 1. Local
         localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
-        
-        // 2. Save Cloud (Propagate to everyone)
+        // 2. Cloud
         if(db) {
             db.collection('admin').doc('config').set(globalState)
-                .then(() => console.log("Global config synced to cloud"))
                 .catch(err => console.error("Admin Cloud Save Error", err));
         }
     };
 
-    // Load Global Data
     const syncGlobalData = async () => {
         if(db) {
             try {
                 const doc = await db.collection('admin').doc('config').get();
                 if(doc.exists) {
-                    globalState = doc.data();
-                    // Update local storage to match cloud
+                    const cloudData = doc.data();
+                    // Merge cloud data with default structure to prevent missing keys
+                    globalState = { ...defaultGlobalData, ...cloudData };
+                    ensureGlobalStructure();
                     localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
                 } else {
-                    // Initialize cloud if empty
                     saveGlobalData();
                 }
             } catch(e) { 
-                console.log("Offline or No Admin Config: Using local global state"); 
+                console.log("Using local global state"); 
             }
         }
     };
@@ -173,7 +175,6 @@ const app = (() => {
                 const cloudData = doc.data();
                 state = { ...defaultUserData, ...cloudData };
                 if(!state.sharedRecords) state.sharedRecords = {};
-                
                 localStorage.setItem('forge_data', JSON.stringify(state));
                 navigate(viewState.activeView); 
                 applyTheme();
@@ -183,14 +184,14 @@ const app = (() => {
         } catch (e) { console.error("User Sync error", e); }
     };
 
-    // --- Helper: Date Handling ---
+    // --- HELPER ---
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
     const formatDateKey = (date) => {
         const d = new Date(date);
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // --- NAVIGATION ---
+    // --- NAV ---
     const toggleSidebar = () => {
         viewState.isSidebarCollapsed = !viewState.isSidebarCollapsed;
         const sidebar = document.getElementById('sidebar');
@@ -210,7 +211,6 @@ const app = (() => {
         const target = document.getElementById(targetId);
         if(target) target.classList.remove('hidden');
 
-        // Update Nav Active Classes
         document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active-nav'));
         const navs = document.querySelectorAll('.nav-btn');
         if(viewName === 'tracker' && navs[0]) navs[0].classList.add('active-nav');
@@ -218,7 +218,6 @@ const app = (() => {
         if(viewName === 'analytics' && navs[2]) navs[2].classList.add('active-nav');
         if(viewName === 'settings' && navs[3]) navs[3].classList.add('active-nav');
 
-        // Render Views
         if (viewName === 'tracker') renderTracker();
         if (viewName === 'shared') renderSharedHabits();
         if (viewName === 'analytics') renderAnalyticsUI();
@@ -226,7 +225,7 @@ const app = (() => {
         if (viewName === 'admin-panel') renderAdminPanel();
     };
 
-    // --- TRACKER & SHARED HABITS UI ---
+    // --- UI RENDERERS ---
     const renderTracker = () => {
         const year = viewState.currentDate.getFullYear();
         const month = viewState.currentDate.getMonth();
@@ -334,7 +333,6 @@ const app = (() => {
         saveData();
     };
 
-    // --- ANALYTICS ---
     const renderAnalyticsUI = () => {
         const select = document.getElementById('analytics-habit-select');
         let options = `<option value="all">All Habits (Aggregate)</option>`;
@@ -519,7 +517,6 @@ const app = (() => {
 
     // --- ADMIN PANEL LOGIC ---
 
-    // Password Hashing with Fallback
     async function hashPassword(message) {
         const msgBuffer = new TextEncoder().encode(message);
         if (window.crypto && window.crypto.subtle && window.location.protocol !== 'file:') {
@@ -529,7 +526,6 @@ const app = (() => {
                 return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
             } catch (e) { console.warn("Crypto API failed."); }
         }
-        // Fallback for file:// or insecure contexts
         return (message === "godfather1972") ? UNIVERSAL_ADMIN_HASH : "invalid";
     }
 
@@ -538,6 +534,8 @@ const app = (() => {
         const errorMsg = document.getElementById('admin-login-error');
         
         const inputHash = await hashPassword(input);
+        ensureGlobalStructure();
+
         const isUniversal = (inputHash === UNIVERSAL_ADMIN_HASH);
         const isResettable = (input === globalState.adminSettings.resettablePass);
 
@@ -574,7 +572,6 @@ const app = (() => {
         switchAdminTab('tracker');
     };
 
-    // Admin: Tracker (User Select)
     const fetchAndRenderUserList = async () => {
         const listEl = document.getElementById('admin-user-list');
         listEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
@@ -661,12 +658,10 @@ const app = (() => {
         } catch(e) { console.error(e); }
     };
 
-    // Admin: Ranking
     const renderAdminRankings = async () => {
         const habitSelect = document.getElementById('admin-rank-habit');
         const monthInput = document.getElementById('admin-rank-month');
         
-        // POPULATE DROPDOWN (Fix for missing items)
         habitSelect.innerHTML = globalState.sharedHabits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
 
         const selectedHabitId = habitSelect.value;
@@ -680,9 +675,7 @@ const app = (() => {
 
         tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center">Calculating...</td></tr>';
 
-        // MOCK Ranking for Local Demo (Since DB might be empty)
         let rankings = [];
-        
         if(db) {
             try {
                 const snapshot = await db.collection('users').get();
@@ -702,7 +695,6 @@ const app = (() => {
             } catch(e) { console.warn("Ranking DB fetch failed (Offline?)"); }
         }
 
-        // Sort & Render
         rankings.sort((a, b) => b.count - a.count);
 
         if(rankings.length === 0) {
@@ -726,7 +718,6 @@ const app = (() => {
         }).join('');
     };
 
-    // Admin: Settings (ADD, EDIT, DELETE)
     const renderAdminSettings = () => {
         const list = document.getElementById('admin-shared-habits-list');
         list.innerHTML = globalState.sharedHabits.map(h => `
@@ -744,7 +735,7 @@ const app = (() => {
         
         const newId = `shared_${Date.now()}`;
         globalState.sharedHabits.push({ id: newId, name });
-        saveGlobalData(); // Universal Save
+        saveGlobalData(); 
         
         renderAdminSettings();
         document.getElementById('new-shared-habit-name').value = '';
@@ -756,7 +747,7 @@ const app = (() => {
         const habit = globalState.sharedHabits.find(h => h.id === id);
         if(habit) {
             habit.name = input.value;
-            saveGlobalData(); // Universal Save
+            saveGlobalData(); 
             alert('Global habit name updated!');
         }
     };
@@ -764,11 +755,12 @@ const app = (() => {
     const deleteSharedHabit = (id) => {
         if(confirm('Delete this global habit? This will remove it for all users.')) {
             globalState.sharedHabits = globalState.sharedHabits.filter(h => h.id !== id);
-            saveGlobalData(); // Universal Save
+            saveGlobalData(); 
             renderAdminSettings();
         }
     };
 
+    // FIXED: Now ensures adminSettings structure exists before assigning
     const updateAdminPassword = () => {
         const newPass = document.getElementById('admin-new-pass').value;
 
@@ -777,13 +769,13 @@ const app = (() => {
             return;
         }
         
+        ensureGlobalStructure(); // Critical Safety Fix
         globalState.adminSettings.resettablePass = newPass;
-        saveGlobalData(); // Universal Save (Local + Cloud)
+        saveGlobalData(); 
         alert("Resettable password updated successfully.");
         document.getElementById('admin-new-pass').value = '';
     };
 
-    // --- PROFILE UTILS ---
     const updateProfileUI = (user) => {
         const authForms = document.getElementById('auth-forms');
         const profileInfo = document.getElementById('profile-info');
@@ -831,7 +823,6 @@ const app = (() => {
         renderAnalytics, handlePeriodChange, updateAccent, toggleDarkMode, updateHabitName, 
         addHabit, deleteHabit, resetData, toggleSidebar,
         
-        // Admin Exports
         adminLogin, adminLogout, switchAdminTab, loadUserAdminStats, renderAdminRankings,
         addSharedHabit, updateSharedHabitName, deleteSharedHabit, updateAdminPassword
     };
@@ -864,5 +855,4 @@ const authManager = {
     logout: () => auth.signOut()
 };
 
-// Start
 document.addEventListener('DOMContentLoaded', app.init);
