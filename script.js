@@ -1,16 +1,16 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 9.0 (FINAL FIX: Syntax, Login, Permissions, Sidebar)
+ * Version: 10.0 (Structure Fixed & Login Optimized)
  */
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-    apiKey: "AIzaSyCYuWCSbCIRInMe0RVHJ8q3CR8tNJeviC4",
-    authDomain: "forge-habit-tracker-45a37.firebaseapp.com",
-    projectId: "forge-habit-tracker-45a37",
-    storageBucket: "forge-habit-tracker-45a37.firebasestorage.app",
-    messagingSenderId: "157279686748",
-    appId: "1:157279686748:web:fbea1f594138ef3b919699"
+  apiKey: "AIzaSyCRLcUd2_uCFXNd_SdBm3oPuWQlK4446uM",
+  authDomain: "habit-forger-5ad1a.firebaseapp.com",
+  projectId: "habit-forger-5ad1a",
+  storageBucket: "habit-forger-5ad1a.firebasestorage.app",
+  messagingSenderId: "1083874400328",
+  appId: "1:1083874400328:web:9f0d0efba9ecf904b7207d"
 };
 
 // Initialize Firebase
@@ -96,16 +96,92 @@ const app = (() => {
     let isAdminLoggedIn = false;
     let viewState = { currentDate: new Date(), sharedDate: new Date(), activeView: 'tracker', isSidebarCollapsed: false };
 
-    // --- Init ---
+    // --- HELPER FUNCTIONS (Defined FIRST to avoid ReferenceErrors) ---
+    
+    const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+    const formatDateKey = (date) => {
+        const d = new Date(date);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const renderSidebar = () => {
+        const btn = document.getElementById('mobile-menu-btn');
+        const sidebar = document.getElementById('sidebar');
+        if(btn && sidebar) {
+            btn.onclick = () => { sidebar.classList.toggle('-translate-x-full'); };
+        }
+    };
+
+    const renderHeader = () => { 
+        const d = new Date();
+        document.getElementById('current-date-display').innerText = d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'});
+        const k = formatDateKey(d);
+        const total = state.habits.length;
+        const done = state.records[k] ? state.records[k].length : 0;
+        const pct = total===0 ? 0 : Math.round((done/total)*100);
+        document.getElementById('today-progress').innerText = `${pct}%`;
+    };
+
+    const setupDatePickers = () => {
+        const today = new Date().toISOString().split('T')[0];
+        const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const endInput = document.getElementById('date-end');
+        if(endInput) {
+            endInput.value = today;
+            document.getElementById('date-start').value = lastWeek;
+        }
+        const rankMonth = document.getElementById('admin-rank-month');
+        if(rankMonth) rankMonth.value = today.substring(0, 7);
+    };
+
+    const applyTheme = () => {
+        const btn = document.getElementById('dark-mode-toggle').firstElementChild;
+        if(state.settings.theme === 'dark') { document.documentElement.classList.add('dark'); btn.style.transform = 'translateX(24px)'; }
+        else { document.documentElement.classList.remove('dark'); btn.style.transform = 'translateX(0)'; }
+        document.documentElement.style.setProperty('--accent-color', state.settings.accent);
+    };
+
+    // --- DATA HANDLERS ---
+    const ensureGlobalStructure = () => {
+        if (!globalState.sharedHabits || !Array.isArray(globalState.sharedHabits)) globalState.sharedHabits = [];
+        if (!globalState.adminSettings) globalState.adminSettings = { resettablePass: "admin123" };
+    };
+
+    const loadLocalData = () => {
+        const localUser = localStorage.getItem('forge_data');
+        if(localUser) state = { ...defaultUserData, ...JSON.parse(localUser) };
+        const localGlobal = localStorage.getItem('forge_global_admin');
+        if(localGlobal) globalState = { ...defaultGlobalData, ...JSON.parse(localGlobal) };
+        ensureGlobalStructure();
+    };
+
+    const saveGlobalData = () => {
+        ensureGlobalStructure();
+        localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
+        if (db) {
+            db.collection('admin').doc('config').set(globalState).catch(console.warn);
+        }
+    };
+
+    const saveData = () => {
+        localStorage.setItem('forge_data', JSON.stringify(state));
+        renderHeader();
+        if (currentUser && db) {
+            db.collection('users').doc(currentUser.uid).set(state, { merge: true }).catch(console.warn);
+        }
+    };
+
+    // --- INITIALIZATION ---
     const init = async () => {
         try {
             loadLocalData();
             applyTheme();
             renderHeader();
-            renderSidebar(); // NOW DEFINED
+            renderSidebar(); 
             setupDatePickers();
             setupEventListeners();
             
+            // Auth Listener
             if (auth) {
                 auth.onAuthStateChanged(user => {
                     currentUser = user;
@@ -124,40 +200,7 @@ const app = (() => {
         }
     };
 
-    // --- Data Handlers ---
-    const loadLocalData = () => {
-        const localUser = localStorage.getItem('forge_data');
-        if(localUser) state = { ...defaultUserData, ...JSON.parse(localUser) };
-        
-        const localGlobal = localStorage.getItem('forge_global_admin');
-        if(localGlobal) globalState = { ...defaultGlobalData, ...JSON.parse(localGlobal) };
-        
-        ensureGlobalStructure();
-    };
-
-    const ensureGlobalStructure = () => {
-        if (!globalState.sharedHabits || !Array.isArray(globalState.sharedHabits)) globalState.sharedHabits = [];
-        if (!globalState.adminSettings) globalState.adminSettings = { resettablePass: "admin123" };
-    };
-
-    const saveData = () => {
-        localStorage.setItem('forge_data', JSON.stringify(state));
-        renderHeader();
-        if (currentUser && db) {
-            db.collection('users').doc(currentUser.uid).set(state, { merge: true }).catch(console.warn);
-        }
-    };
-
-    const saveGlobalData = () => {
-        ensureGlobalStructure();
-        localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
-        if (db) {
-            db.collection('admin').doc('config').set(globalState)
-                .then(() => console.log("Admin Data Synced"))
-                .catch(e => console.warn("Admin Sync Failed:", e));
-        }
-    };
-
+    // --- SYNC FUNCTIONS ---
     const syncUserData = async () => {
         if (!currentUser || !db) return;
         try {
@@ -167,7 +210,7 @@ const app = (() => {
                 localStorage.setItem('forge_data', JSON.stringify(state));
                 if(viewState.activeView === 'tracker') renderTracker();
             }
-        } catch(e) { console.warn("User sync error", e); }
+        } catch(e) { console.warn(e); }
     };
 
     const syncGlobalData = async (force = false) => {
@@ -183,31 +226,15 @@ const app = (() => {
             } else if (force && currentUser) {
                 saveGlobalData(); 
             }
-        } catch(e) { console.warn("Global sync error", e); }
+        } catch(e) { console.warn(e); }
     };
 
-    // --- UI Navigation ---
-    const renderSidebar = () => {
-        const btn = document.getElementById('mobile-menu-btn');
-        const sidebar = document.getElementById('sidebar');
-        if(btn && sidebar) {
-            btn.onclick = () => { sidebar.classList.toggle('-translate-x-full'); };
-        }
-    };
-
-    const toggleSidebar = () => {
-        viewState.isSidebarCollapsed = !viewState.isSidebarCollapsed;
-        const sidebar = document.getElementById('sidebar');
-        if (viewState.isSidebarCollapsed) sidebar.classList.add('sidebar-collapsed');
-        else sidebar.classList.remove('sidebar-collapsed');
-    };
-
+    // --- UI RENDERERS ---
     const navigate = (viewName) => {
         if (viewName.startsWith('admin-panel') && !isAdminLoggedIn) viewName = 'admin-login';
-        
         viewState.activeView = viewName;
-        document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
         
+        document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
         const target = document.getElementById(viewName === 'admin-panel' ? 'view-admin-panel' : `view-${viewName}`);
         if(target) target.classList.remove('hidden');
 
@@ -224,10 +251,6 @@ const app = (() => {
         if (viewName === 'settings') renderSettings();
         if (viewName === 'admin-panel') renderAdminPanel();
     };
-
-    // --- Tracker & Shared ---
-    const renderTracker = () => renderGrid(false);
-    const renderSharedHabits = () => renderGrid(true);
 
     const renderGrid = (isShared) => {
         const date = isShared ? viewState.sharedDate : viewState.currentDate;
@@ -277,6 +300,7 @@ const app = (() => {
         }).join('');
     };
 
+    // --- FEATURES ---
     const toggle = (id, k) => {
         if(!state.records[k]) state.records[k] = [];
         const idx = state.records[k].indexOf(id);
@@ -489,40 +513,11 @@ const app = (() => {
         }
     };
 
-    const renderHeader = () => { 
-        const d = new Date();
-        document.getElementById('current-date-display').innerText = d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'});
-        // Calculate percentages
-        const k = formatDateKey(d);
-        const total = state.habits.length;
-        const done = state.records[k] ? state.records[k].length : 0;
-        const pct = total===0 ? 0 : Math.round((done/total)*100);
-        document.getElementById('today-progress').innerText = `${pct}%`;
-    };
-    
-    const setupDatePickers = () => {
-        const today = new Date().toISOString().split('T')[0];
-        const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        const endInput = document.getElementById('date-end');
-        if(endInput) {
-            endInput.value = today;
-            document.getElementById('date-start').value = lastWeek;
-        }
-        const rankMonth = document.getElementById('admin-rank-month');
-        if(rankMonth) rankMonth.value = today.substring(0, 7);
-    };
-
     const setupEventListeners = () => { window.addEventListener('resize', () => { if(viewState.activeView === 'analytics') renderAnalytics(); }); };
     
-    // User Settings stubs (Mapped from original)
+    // User Settings stubs
     const updateAccent = (c) => { state.settings.accent = c; saveData(); document.documentElement.style.setProperty('--accent-color', c); };
     const toggleDarkMode = () => { state.settings.theme = state.settings.theme==='light'?'dark':'light'; saveData(); applyTheme(); };
-    const applyTheme = () => {
-        const btn = document.getElementById('dark-mode-toggle').firstElementChild;
-        if(state.settings.theme === 'dark') { document.documentElement.classList.add('dark'); btn.style.transform = 'translateX(24px)'; }
-        else { document.documentElement.classList.remove('dark'); btn.style.transform = 'translateX(0)'; }
-        document.documentElement.style.setProperty('--accent-color', state.settings.accent);
-    };
     const addHabit = () => { state.habits.push({id:Date.now(), name:'New'}); saveData(); renderSettings(); };
     const deleteHabit = (id) => { if(confirm('Delete?')) { state.habits = state.habits.filter(h=>h.id!==id); saveData(); renderSettings(); }};
     const updateHabitName = (id) => { const h=state.habits.find(x=>x.id===id); if(h){ h.name=document.getElementById('habit-name-'+id).value; saveData(); } };
@@ -540,18 +535,98 @@ const app = (() => {
 
     // Analytics Stubs
     const renderAnalytics = () => {
-        // Basic re-implementation of renderAnalytics for brevity, assuming standard chart.js
-        // ... (Full implementation would mirror logic from v8.0, omitted here to fit strict fix, relying on previously working logic or simplified)
+        const habitId = document.getElementById('analytics-habit-select').value;
+        const chartType = document.getElementById('analytics-chart-type').value;
+        const startInput = document.getElementById('date-start').value;
+        const endInput = document.getElementById('date-end').value;
+        if(!startInput || !endInput) return;
+
+        const startDate = new Date(startInput);
+        const endDate = new Date(endInput);
+        const ctxMain = document.getElementById('mainChart').getContext('2d');
+        const ctxPie = document.getElementById('consistencyChart').getContext('2d');
+
+        if (viewState.chartInstance) viewState.chartInstance.destroy();
+        if (viewState.consistencyChartInstance) viewState.consistencyChartInstance.destroy();
+
+        const labels = [];
+        const dataPoints = [];
+        let totalCompleted = 0;
+        let totalPossible = 0;
+        let loopDate = new Date(startDate);
+        
+        while(loopDate <= endDate) {
+            const key = formatDateKey(loopDate);
+            labels.push(new Date(loopDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            const records = state.records[key] || [];
+            let val = 0;
+
+            if (habitId === 'all') {
+                if (state.habits.length > 0) {
+                    val = Math.round((records.length / state.habits.length) * 100);
+                    totalCompleted += records.length;
+                    totalPossible += state.habits.length;
+                }
+            } else {
+                const id = isNaN(habitId) ? habitId : parseInt(habitId);
+                const isDone = records.includes(id);
+                val = isDone ? 100 : 0;
+                totalCompleted += isDone ? 1 : 0;
+                totalPossible += 1;
+            }
+            dataPoints.push(val);
+            loopDate.setDate(loopDate.getDate() + 1);
+        }
+
+        viewState.chartInstance = new Chart(ctxMain, {
+            type: chartType,
+            data: { labels: labels, datasets: [{ label: 'Success Rate %', data: dataPoints, backgroundColor: state.settings.accent }] }
+        });
+
+        const missed = totalPossible - totalCompleted;
+        viewState.consistencyChartInstance = new Chart(ctxPie, {
+            type: 'doughnut',
+            data: { labels: ['Completed', 'Missed'], datasets: [{ data: [totalCompleted, missed], backgroundColor: [state.settings.accent, '#e5e7eb'] }] }
+        });
+        document.getElementById('period-count').innerText = totalCompleted;
     };
-    const handlePeriodChange = () => {}; 
-    const renderAnalyticsUI = () => {};
+    
+    const handlePeriodChange = () => {
+        const period = document.getElementById('analytics-period-select').value;
+        const customDiv = document.getElementById('custom-date-controls');
+        let end = new Date();
+        let start = new Date();
+
+        if (period === 'custom') {
+            customDiv.classList.remove('hidden');
+            return;
+        } else {
+            customDiv.classList.add('hidden');
+            if (period === '7days') start.setDate(end.getDate() - 6);
+            else if (period === '30days') start.setDate(end.getDate() - 29);
+            else if (period === 'month') start = new Date(end.getFullYear(), end.getMonth(), 1);
+            
+            document.getElementById('date-end').value = end.toISOString().split('T')[0];
+            document.getElementById('date-start').value = start.toISOString().split('T')[0];
+            renderAnalytics();
+        }
+    }; 
+    
+    const renderAnalyticsUI = () => {
+        const select = document.getElementById('analytics-habit-select');
+        let options = `<option value="all">All Habits (Aggregate)</option>`;
+        options += state.habits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
+        select.innerHTML = options;
+        if(!document.getElementById('date-end').value) handlePeriodChange(); 
+        else renderAnalytics();
+    };
 
     return {
         init, navigate, toggleSidebar, changeMonth, changeSharedMonth,
         toggle, toggleShared,
         updateAccent, toggleDarkMode, addHabit, deleteHabit, updateHabitName, resetData,
         adminLogin, adminLogout, switchAdminTab, loadU, saveSH, delSH, addSharedHabit, updateAdminPassword, renderAdminRankings,
-        renderAnalytics, handlePeriodChange, renderAnalyticsUI // Export these to fix 'not defined' errors if called in HTML
+        renderAnalytics, handlePeriodChange, renderAnalyticsUI 
     };
 })();
 
