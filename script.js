@@ -1,9 +1,9 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 14.0 (FULL FEATURES RESTORED - Old Keys)
+ * Version: 15.0 (Merged: Working Login + Full Features)
  */
 
-// --- 1. FIREBASE CONFIGURATION (OLD KEYS: forge-habit-tracker-45a37) ---
+// --- 1. FIREBASE CONFIGURATION (Using Old Keys as requested) ---
 const firebaseConfig = {
     apiKey: "AIzaSyCYuWCSbCIRInMe0RVHJ8q3CR8tNJeviC4",
     authDomain: "forge-habit-tracker-45a37.firebaseapp.com",
@@ -20,7 +20,7 @@ try {
         firebase.initializeApp(firebaseConfig);
         auth = firebase.auth();
         db = firebase.firestore();
-        console.log("Firebase (Old Project) initialized successfully.");
+        console.log("Firebase initialized successfully.");
     } else {
         console.error("CRITICAL: Firebase SDK not found in HTML.");
     }
@@ -31,7 +31,7 @@ try {
 // --- 3. CONSTANTS ---
 const UNIVERSAL_ADMIN_HASH = "89934ea55110ebd089448fc84d668a828904257d138fadb0fbc9bfd8227d109d";
 
-// --- 4. AUTHENTICATION MANAGER ---
+// --- 4. AUTHENTICATION MANAGER (From Code 2 - Working Login) ---
 const authManager = {
     signInGoogle: () => {
         if (!auth) return alert("Firebase not loaded. Refresh the page.");
@@ -74,18 +74,18 @@ const authManager = {
     logout: () => auth.signOut()
 };
 
-// --- 5. MAIN APPLICATION ---
+// --- 5. MAIN APPLICATION (From Code 1 - Working Features) ---
 const app = (() => {
     // Default Data
     const defaultUserData = {
-        habits: [ { id: 1, name: "Morning Gym" }, { id: 2, name: "Read 30 Mins" } ],
+        habits: [ { id: 1, name: "Morning Gym" }, { id: 2, name: "Read 30 Mins" }, { id: 3, name: "Drink 2L Water" } ],
         records: {}, 
         sharedRecords: {},
         settings: { theme: 'light', accent: '#8B5CF6' }
     };
 
     const defaultGlobalData = {
-        sharedHabits: [ { id: 'shared_1', name: "Global: 10k Steps" } ],
+        sharedHabits: [ { id: 'shared_1', name: "Global: 10k Steps" }, { id: 'shared_2', name: "Global: No Sugar" } ],
         adminSettings: { resettablePass: "admin123" }
     };
 
@@ -96,7 +96,7 @@ const app = (() => {
     let isAdminLoggedIn = false;
     let viewState = { currentDate: new Date(), sharedDate: new Date(), activeView: 'tracker', isSidebarCollapsed: false };
 
-    // --- HELPER FUNCTIONS ---
+    // --- HELPER FUNCTIONS (Moved to top to prevent loading errors) ---
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
     
     const formatDateKey = (date) => {
@@ -196,6 +196,7 @@ const app = (() => {
             });
         }
         
+        // Initial load for Guest
         syncGlobalData(false);
         navigate('tracker');
     };
@@ -253,6 +254,9 @@ const app = (() => {
     };
 
     // --- RENDERERS ---
+    const renderTracker = () => renderGrid(false);
+    const renderSharedHabits = () => renderGrid(true);
+
     const renderGrid = (isShared) => {
         const date = isShared ? viewState.sharedDate : viewState.currentDate;
         const year = date.getFullYear();
@@ -617,6 +621,7 @@ const app = (() => {
         });
         document.getElementById('period-count').innerText = totalCompleted;
     };
+    
     const handlePeriodChange = () => {
         const period = document.getElementById('analytics-period-select').value;
         const customDiv = document.getElementById('custom-date-controls');
@@ -637,6 +642,7 @@ const app = (() => {
             renderAnalytics();
         }
     }; 
+    
     const renderAnalyticsUI = () => {
         const select = document.getElementById('analytics-habit-select');
         let options = `<option value="all">All Habits (Aggregate)</option>`;
@@ -648,7 +654,7 @@ const app = (() => {
 
     return {
         init, navigate, toggleSidebar, changeMonth, changeSharedMonth,
-        toggle, toggleShared, toggleHabit: toggle, toggleSharedHabit: toggleShared,
+        toggle: toggle, toggleShared: toggleShared, toggleHabit: toggle, toggleSharedHabit: toggleShared,
         updateAccent, toggleDarkMode, addHabit, deleteHabit, updateHabitName, resetData,
         adminLogin, adminLogout, switchAdminTab, loadU, saveSH, delSH, addSharedHabit, updateAdminPassword, renderAdminRankings,
         renderAnalytics, handlePeriodChange, renderAnalyticsUI 
