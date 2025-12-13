@@ -1,19 +1,17 @@
 /**
- * FORGE - Cloud Habit Tracker
- * Version: 3.0 (Firebase Integration)
+ * FORGE - Cloud Habit Tracker & Admin System
+ * Version: 4.0 (Shared Habits + Dual-Pass Admin)
  */
 
 // --- FIREBASE CONFIGURATION ---
-// 1. Go to Firebase Console > Create Project
-// 2. Add Web App > Copy Config object below
-  const firebaseConfig = {
+const firebaseConfig = {
     apiKey: "AIzaSyCYuWCSbCIRInMe0RVHJ8q3CR8tNJeviC4",
     authDomain: "forge-habit-tracker-45a37.firebaseapp.com",
     projectId: "forge-habit-tracker-45a37",
     storageBucket: "forge-habit-tracker-45a37.firebasestorage.app",
     messagingSenderId: "157279686748",
     appId: "1:157279686748:web:fbea1f594138ef3b919699"
-  };
+};
 
 // Initialize Firebase
 let auth, db;
@@ -25,6 +23,10 @@ try {
     console.warn("Firebase not configured yet. Using local storage mode.");
 }
 
+// --- CONSTANTS & ADMIN SECURITY ---
+const UNIVERSAL_ADMIN_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"; // SHA-256 of 'admin' (Simplified for demo)
+// Note: In production, use "ForgeMaster2024!" -> Hash. For this demo, we use a simple hash check function.
+
 const app = (() => {
     // --- State Management ---
     const defaultData = {
@@ -33,26 +35,48 @@ const app = (() => {
             { id: 2, name: "Read 30 Mins" },
             { id: 3, name: "Drink 2L Water" }
         ],
-        records: {}, 
+        records: {}, // Personal Records
+        sharedRecords: {}, // { 'YYYY-MM-DD': ['shared_1'] } - Tracks completion of shared habits
         settings: { theme: 'light', accent: '#8B5CF6' }
+    };
+
+    // Global Admin Data (Synced from 'admin/config' doc)
+    let globalState = {
+        sharedHabits: [
+            { id: 'shared_1', name: "Global: 10k Steps" }, // Default shared habit
+            { id: 'shared_2', name: "Global: No Sugar" }
+        ],
+        adminSettings: {
+            resettablePass: "admin123" // Default Resettable Password
+        }
     };
 
     let state = defaultData;
     let currentUser = null;
+    let isAdminLoggedIn = false;
+    
     let viewState = {
         currentDate: new Date(),
+        sharedDate: new Date(),
         activeView: 'tracker',
         chartInstance: null,
         consistencyChartInstance: null,
+        adminChartInstance: null,
         isSidebarCollapsed: false
     };
 
     // --- Core Functions ---
 
-    const init = () => {
-        // Load local first for speed
+    const init = async () => {
+        // Load local first
         const local = localStorage.getItem('forge_data');
         if(local) state = JSON.parse(local);
+        
+        // Ensure sharedRecords exists (Migration)
+        if(!state.sharedRecords) state.sharedRecords = {};
+
+        // Load Global Admin Data (Simulated or Cloud)
+        await syncGlobalData();
 
         applyTheme();
         renderHeader();
@@ -60,14 +84,7 @@ const app = (() => {
         navigate('tracker');
         
         // Init Date Pickers
-        const today = new Date().toISOString().split('T')[0];
-        const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        const endInput = document.getElementById('date-end');
-        if(endInput) {
-            endInput.value = today;
-            document.getElementById('date-start').value = lastWeek;
-        }
-
+        setupDatePickers();
         setupEventListeners();
 
         // Check Firebase Auth
@@ -80,15 +97,46 @@ const app = (() => {
         }
     };
 
+    const setupDatePickers = () => {
+        const today = new Date().toISOString().split('T')[0];
+        const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const endInput = document.getElementById('date-end');
+        if(endInput) {
+            endInput.value = today;
+            document.getElementById('date-start').value = lastWeek;
+        }
+        // Admin Ranking Month Default
+        document.getElementById('admin-rank-month').value = today.substring(0, 7);
+    };
+
     const saveData = () => {
-        // 1. Save Local
         localStorage.setItem('forge_data', JSON.stringify(state));
         renderHeader();
-
-        // 2. Save Cloud (Debounced 1s would be better, but direct for simplicity)
         if (currentUser && db) {
-            db.collection('users').doc(currentUser.uid).set(state)
+            db.collection('users').doc(currentUser.uid).set(state, { merge: true })
                 .catch(err => console.error("Cloud Save Error", err));
+        }
+    };
+
+    const saveGlobalData = () => {
+        // In real app: Write to admin/config. Here we simulate persistence or write to a specific doc if admin
+        if(db) {
+            db.collection('admin').doc('config').set(globalState)
+                .catch(err => console.error("Admin Save Error", err));
+        }
+    };
+
+    const syncGlobalData = async () => {
+        if(db) {
+            try {
+                const doc = await db.collection('admin').doc('config').get();
+                if(doc.exists) {
+                    globalState = doc.data();
+                } else {
+                    // Initialize if empty
+                    saveGlobalData();
+                }
+            } catch(e) { console.log("Using default global state"); }
         }
     };
 
@@ -97,21 +145,16 @@ const app = (() => {
         try {
             const doc = await db.collection('users').doc(currentUser.uid).get();
             if (doc.exists) {
-                state = doc.data();
-                // Ensure defaults exist if merged
-                if(!state.settings) state.settings = defaultData.settings;
-                if(!state.records) state.records = {};
-                
-                saveData(); // Sync back to local
-                navigate(viewState.activeView); // Re-render current view
+                const cloudData = doc.data();
+                state = { ...defaultData, ...cloudData };
+                // Deep merge settings if needed, simplified here
+                saveData(); 
+                navigate(viewState.activeView); 
                 applyTheme();
             } else {
-                // New user on cloud, upload local data
                 saveData();
             }
-        } catch (e) {
-            console.error("Sync error", e);
-        }
+        } catch (e) { console.error("Sync error", e); }
     };
 
     // --- Helper: Date Handling ---
@@ -121,7 +164,7 @@ const app = (() => {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // --- Sidebar Logic ---
+    // --- Sidebar & Nav ---
     const toggleSidebar = () => {
         viewState.isSidebarCollapsed = !viewState.isSidebarCollapsed;
         const sidebar = document.getElementById('sidebar');
@@ -129,32 +172,59 @@ const app = (() => {
         else sidebar.classList.remove('sidebar-collapsed');
     };
 
-    // --- View Navigation ---
     const navigate = (viewName) => {
+        // Security Check for Admin
+        if(viewName.startsWith('admin-panel') && !isAdminLoggedIn) {
+            viewName = 'admin-login';
+        }
+
         viewState.activeView = viewName;
         document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
-        const target = document.getElementById(`view-${viewName}`);
+        
+        const targetId = viewName === 'admin-panel' ? 'view-admin-panel' : `view-${viewName}`;
+        const target = document.getElementById(targetId);
         if(target) target.classList.remove('hidden');
 
+        // Nav Active State
         document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active-nav'));
-        const navIndex = ['tracker', 'analytics', 'settings'].indexOf(viewName);
-        if(navIndex >= 0) document.querySelectorAll('.nav-btn')[navIndex].classList.add('active-nav');
+        if(viewName === 'tracker') document.querySelectorAll('.nav-btn')[0].classList.add('active-nav');
+        if(viewName === 'shared') document.querySelectorAll('.nav-btn')[1].classList.add('active-nav');
+        if(viewName === 'analytics') document.querySelectorAll('.nav-btn')[2].classList.add('active-nav');
+        if(viewName === 'settings') document.querySelectorAll('.nav-btn')[3].classList.add('active-nav');
 
         if (viewName === 'tracker') renderTracker();
+        if (viewName === 'shared') renderSharedHabits();
         if (viewName === 'analytics') renderAnalyticsUI();
         if (viewName === 'settings') renderSettings();
+        if (viewName === 'admin-panel') renderAdminPanel();
     };
 
-    // --- SECTION: TRACKER ---
+    // --- SECTION: TRACKER (Personal) ---
     const renderTracker = () => {
         const year = viewState.currentDate.getFullYear();
         const month = viewState.currentDate.getMonth();
-        const daysInMonth = getDaysInMonth(year, month);
-        
-        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        document.getElementById('calendar-month-year').innerText = `${monthNames[month]} ${year}`;
+        renderGrid('tracker-body', 'calendar-header-row', 'calendar-month-year', year, month, state.habits, state.records, false);
+    };
 
-        const headerRow = document.getElementById('calendar-header-row');
+    // --- SECTION: SHARED HABITS (New) ---
+    const renderSharedHabits = () => {
+        const year = viewState.sharedDate.getFullYear();
+        const month = viewState.sharedDate.getMonth();
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        document.getElementById('shared-month-year').innerText = `${monthNames[month]} ${year}`;
+        
+        // Use Global Habits, User's Shared Records
+        renderGrid('shared-body', 'shared-header-row', null, year, month, globalState.sharedHabits, state.sharedRecords, true);
+    };
+
+    // Generic Grid Renderer
+    const renderGrid = (bodyId, headerId, titleId, year, month, habitsList, recordsObj, isShared) => {
+        const daysInMonth = getDaysInMonth(year, month);
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        
+        if(titleId) document.getElementById(titleId).innerText = `${monthNames[month]} ${year}`;
+
+        const headerRow = document.getElementById(headerId);
         headerRow.innerHTML = '';
         let daysHtml = '<div class="flex gap-2 pb-2">';
         
@@ -162,33 +232,41 @@ const app = (() => {
             const dateObj = new Date(year, month, d);
             const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'narrow' });
             const isToday = formatDateKey(new Date()) === formatDateKey(dateObj);
+            const colorClass = isShared ? 'text-pink-600 bg-pink-100' : 'text-violet-600 bg-violet-100';
             
             daysHtml += `
                 <div class="flex-shrink-0 w-10 text-center">
                     <div class="text-xs text-gray-400 mb-1">${dayName}</div>
-                    <div class="text-sm font-bold ${isToday ? 'text-violet-600 bg-violet-100 rounded-full w-8 h-8 flex items-center justify-center mx-auto' : ''}">${d}</div>
+                    <div class="text-sm font-bold ${isToday ? `${colorClass} rounded-full w-8 h-8 flex items-center justify-center mx-auto` : ''}">${d}</div>
                 </div>
             `;
         }
         daysHtml += '</div>';
         headerRow.innerHTML = daysHtml;
 
-        const tbody = document.getElementById('tracker-body');
+        const tbody = document.getElementById(bodyId);
         tbody.innerHTML = '';
 
-        state.habits.forEach(habit => {
+        habitsList.forEach(habit => {
             const tr = document.createElement('tr');
-            tr.className = "border-b dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition";
+            tr.className = `border-b dark:border-gray-800 transition ${isShared ? 'hover:bg-pink-50 dark:hover:bg-pink-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}`;
             
             let rowHtml = `<td class="p-4 font-medium text-gray-700 dark:text-gray-200 sticky left-0 bg-white dark:bg-gray-900 z-10 shadow-sm border-r dark:border-gray-800 truncate max-w-[200px]">${habit.name}</td>`;
             rowHtml += `<td class="p-4"><div class="flex gap-2">`;
 
             for (let d = 1; d <= daysInMonth; d++) {
                 const dateKey = formatDateKey(new Date(year, month, d));
-                const completed = state.records[dateKey] && state.records[dateKey].includes(habit.id);
+                const completed = recordsObj[dateKey] && recordsObj[dateKey].includes(habit.id);
+                const checkboxClass = isShared ? 'forge-checkbox shared-checkbox' : 'forge-checkbox';
+                
+                // Toggle function differs for shared
+                const toggleFn = isShared 
+                    ? `app.toggleSharedHabit('${habit.id}', '${dateKey}')`
+                    : `app.toggleHabit(${habit.id}, '${dateKey}')`;
+
                 rowHtml += `
                     <div class="flex-shrink-0 w-10 flex justify-center">
-                        <input type="checkbox" class="forge-checkbox" ${completed ? 'checked' : ''} onchange="app.toggleHabit(${habit.id}, '${dateKey}')">
+                        <input type="checkbox" class="${checkboxClass}" ${completed ? 'checked' : ''} onchange="${toggleFn}">
                     </div>`;
             }
 
@@ -202,6 +280,11 @@ const app = (() => {
         viewState.currentDate.setMonth(viewState.currentDate.getMonth() + delta);
         renderTracker();
     };
+    
+    const changeSharedMonth = (delta) => {
+        viewState.sharedDate.setMonth(viewState.sharedDate.getMonth() + delta);
+        renderSharedHabits();
+    };
 
     const toggleHabit = (habitId, dateKey) => {
         if (!state.records[dateKey]) state.records[dateKey] = [];
@@ -212,14 +295,25 @@ const app = (() => {
         saveData();
     };
 
-    // --- SECTION: ANALYTICS (FIXED) ---
+    const toggleSharedHabit = (habitId, dateKey) => {
+        if (!state.sharedRecords) state.sharedRecords = {}; // Safety
+        if (!state.sharedRecords[dateKey]) state.sharedRecords[dateKey] = [];
+        
+        const index = state.sharedRecords[dateKey].indexOf(habitId);
+        if (index > -1) state.sharedRecords[dateKey].splice(index, 1);
+        else state.sharedRecords[dateKey].push(habitId);
+        
+        if (state.sharedRecords[dateKey].length === 0) delete state.sharedRecords[dateKey];
+        saveData(); // Save to user's record
+    };
+
+    // --- SECTION: ANALYTICS ---
     const renderAnalyticsUI = () => {
         const select = document.getElementById('analytics-habit-select');
         let options = `<option value="all">All Habits (Aggregate)</option>`;
         options += state.habits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
         select.innerHTML = options;
         
-        // Only set default dates if not already set by user interaction
         if(!document.getElementById('date-end').value) handlePeriodChange(); 
         else renderAnalytics();
     };
@@ -227,13 +321,12 @@ const app = (() => {
     const handlePeriodChange = () => {
         const period = document.getElementById('analytics-period-select').value;
         const customDiv = document.getElementById('custom-date-controls');
-        
         let end = new Date();
         let start = new Date();
 
         if (period === 'custom') {
             customDiv.classList.remove('hidden');
-            return; // Don't calc dates
+            return;
         } else {
             customDiv.classList.add('hidden');
             if (period === '7days') start.setDate(end.getDate() - 6);
@@ -249,58 +342,21 @@ const app = (() => {
     const renderAnalytics = () => {
         const habitId = document.getElementById('analytics-habit-select').value;
         const chartType = document.getElementById('analytics-chart-type').value;
-        // Fix: Use UTC or parse carefully to avoid timezone issues with inputs
         const startInput = document.getElementById('date-start').value;
         const endInput = document.getElementById('date-end').value;
-        
         if(!startInput || !endInput) return;
 
         const startDate = new Date(startInput);
         const endDate = new Date(endInput);
-        
         const ctxMain = document.getElementById('mainChart').getContext('2d');
         const ctxPie = document.getElementById('consistencyChart').getContext('2d');
 
         if (viewState.chartInstance) viewState.chartInstance.destroy();
         if (viewState.consistencyChartInstance) viewState.consistencyChartInstance.destroy();
 
-        const labels = [];
-        const dataPoints = [];
-        let totalCompleted = 0;
-        let totalPossible = 0;
-
-        // Clone start date for iteration
-        let loopDate = new Date(startDate);
-        
-        // Loop while loopDate <= endDate
-        while(loopDate <= endDate) {
-            const key = formatDateKey(loopDate);
-            labels.push(new Date(loopDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-            
-            let val = 0;
-            const records = state.records[key] || [];
-
-            if (habitId === 'all') {
-                if (state.habits.length > 0) {
-                    val = Math.round((records.length / state.habits.length) * 100);
-                    totalCompleted += records.length;
-                    totalPossible += state.habits.length;
-                }
-            } else {
-                const id = parseInt(habitId);
-                const isDone = records.includes(id);
-                val = isDone ? 100 : 0;
-                totalCompleted += isDone ? 1 : 0;
-                totalPossible += 1;
-            }
-            dataPoints.push(val);
-            
-            // Increment Day
-            loopDate.setDate(loopDate.getDate() + 1);
-        }
+        const { labels, dataPoints, totalCompleted, totalPossible } = calculateStats(startDate, endDate, habitId, state.habits, state.records);
 
         const accent = state.settings.accent;
-
         viewState.chartInstance = new Chart(ctxMain, {
             type: chartType,
             data: {
@@ -315,11 +371,7 @@ const app = (() => {
                     fill: true
                 }]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { y: { beginAtZero: true, max: 100 } }
-            }
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } }
         });
 
         const missed = totalPossible - totalCompleted;
@@ -327,20 +379,43 @@ const app = (() => {
             type: 'doughnut',
             data: {
                 labels: ['Completed', 'Missed'],
-                datasets: [{
-                    data: [totalCompleted, missed],
-                    backgroundColor: [accent, '#e5e7eb'],
-                    borderWidth: 0
-                }]
+                datasets: [{ data: [totalCompleted, missed], backgroundColor: [accent, '#e5e7eb'], borderWidth: 0 }]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '70%'
-            }
+            options: { responsive: true, maintainAspectRatio: false, cutout: '70%' }
         });
-
         document.getElementById('period-count').innerText = totalCompleted;
+    };
+
+    const calculateStats = (startDate, endDate, habitId, habitsSource, recordsSource) => {
+        const labels = [];
+        const dataPoints = [];
+        let totalCompleted = 0;
+        let totalPossible = 0;
+        let loopDate = new Date(startDate);
+        
+        while(loopDate <= endDate) {
+            const key = formatDateKey(loopDate);
+            labels.push(new Date(loopDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            const records = recordsSource[key] || [];
+            let val = 0;
+
+            if (habitId === 'all') {
+                if (habitsSource.length > 0) {
+                    val = Math.round((records.length / habitsSource.length) * 100);
+                    totalCompleted += records.length;
+                    totalPossible += habitsSource.length;
+                }
+            } else {
+                const id = isNaN(habitId) ? habitId : parseInt(habitId); // ID can be string for shared
+                const isDone = records.includes(id);
+                val = isDone ? 100 : 0;
+                totalCompleted += isDone ? 1 : 0;
+                totalPossible += 1;
+            }
+            dataPoints.push(val);
+            loopDate.setDate(loopDate.getDate() + 1);
+        }
+        return { labels, dataPoints, totalCompleted, totalPossible };
     };
 
     // --- SECTION: SETTINGS ---
@@ -399,104 +474,4 @@ const app = (() => {
     };
 
     const deleteHabit = (id) => {
-        if(confirm('Delete this habit?')) {
-            state.habits = state.habits.filter(h => h.id !== id);
-            saveData();
-            renderSettings();
-        }
-    };
-
-    const resetData = (scope) => {
-        if(!confirm('Are you sure?')) return;
-        if (scope === 'all') state.records = {};
-        saveData();
-        navigate('tracker');
-    };
-
-    // --- Profile & Auth UI Helper ---
-    const updateProfileUI = (user) => {
-        const authForms = document.getElementById('auth-forms');
-        const profileInfo = document.getElementById('profile-info');
-        const userStatusText = document.getElementById('user-status-text');
-
-        if (user) {
-            authForms.classList.add('hidden');
-            profileInfo.classList.remove('hidden');
-            
-            document.getElementById('profile-name').innerText = user.displayName || "User";
-            document.getElementById('profile-email').innerText = user.email;
-            document.getElementById('profile-pic').src = user.photoURL || `https://ui-avatars.com/api/?name=${user.email}&background=8B5CF6&color=fff`;
-            
-            userStatusText.innerText = "Online";
-        } else {
-            authForms.classList.remove('hidden');
-            profileInfo.classList.add('hidden');
-            userStatusText.innerText = "Guest Mode";
-        }
-    };
-
-    const renderHeader = () => {
-        const today = new Date();
-        document.getElementById('current-date-display').innerText = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-        
-        const key = formatDateKey(today);
-        const totalHabits = state.habits.length;
-        const completedToday = state.records[key] ? state.records[key].length : 0;
-        
-        const monthKey = key.substring(0, 7);
-        const daysPassed = today.getDate();
-        const totalPossible = daysPassed * totalHabits;
-        let totalDoneMonth = 0;
-        for(let d=1; d<=daysPassed; d++) {
-             const k = `${monthKey}-${String(d).padStart(2, '0')}`;
-             if(state.records[k]) totalDoneMonth += state.records[k].length;
-        }
-
-        const todayPct = totalHabits === 0 ? 0 : Math.round((completedToday / totalHabits) * 100);
-        const monthPct = totalPossible === 0 ? 0 : Math.round((totalDoneMonth / totalPossible) * 100);
-
-        document.getElementById('today-progress').innerText = `${todayPct}%`;
-        document.getElementById('month-progress').innerText = `${monthPct}%`;
-    };
-
-    const renderSidebar = () => {
-        const btn = document.getElementById('mobile-menu-btn');
-        const sidebar = document.getElementById('sidebar');
-        btn.onclick = () => { sidebar.classList.toggle('-translate-x-full'); };
-    };
-    
-    const setupEventListeners = () => {
-        window.addEventListener('resize', () => { if(viewState.activeView === 'analytics') renderAnalytics(); });
-    };
-
-    return {
-        init, navigate, changeMonth, toggleHabit, renderAnalytics, handlePeriodChange,
-        updateAccent, toggleDarkMode, updateHabitName, addHabit, deleteHabit, resetData, toggleSidebar
-    };
-
-})();
-
-const authManager = {
-    signInGoogle: () => {
-        if(!auth) return alert("Firebase not configured");
-        const provider = new firebase.auth.GoogleAuthProvider();
-        auth.signInWithPopup(provider).catch(e => alert(e.message));
-    },
-    handleEmailAuth: () => {
-        if(!auth) return alert("Firebase not configured");
-        const email = document.getElementById('auth-email').value;
-        const pass = document.getElementById('auth-password').value;
-        const errorMsg = document.getElementById('auth-error');
-        
-        if(window.authMode === 'register') {
-            auth.createUserWithEmailAndPassword(email, pass)
-                .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
-        } else {
-            auth.signInWithEmailAndPassword(email, pass)
-                .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
-        }
-    },
-    logout: () => auth.signOut()
-};
-
-document.addEventListener('DOMContentLoaded', app.init);
+        if(confirm('De
