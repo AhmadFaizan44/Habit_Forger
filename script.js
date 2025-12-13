@@ -1,6 +1,6 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 6.0 (Sync Fix & Permission Handling)
+ * Version: 7.0 (Login Blocker Fixed & Sync Logic Optimized)
  */
 
 // --- FIREBASE CONFIGURATION ---
@@ -68,39 +68,43 @@ const app = (() => {
     // --- Core Functions ---
 
     const init = async () => {
-        // 1. Load Local Fallbacks
+        // 1. Load Local Data Immediately (No Wait)
         loadLocalData();
 
-        // 2. Initial Cloud Attempt (Might fail if not logged in)
-        await syncGlobalData(); 
-        
+        // 2. Render UI Immediately (No Wait)
         applyTheme();
         renderHeader();
         renderSidebar();
         setupDatePickers();
         setupEventListeners();
 
-        // 3. Auth Listener - CRITICAL FIX
+        // 3. Register Auth Listener IMMEDIATELY (Do not await anything before this)
         if(auth) {
             auth.onAuthStateChanged(async (user) => {
                 currentUser = user;
-                updateProfileUI(user);
+                updateProfileUI(user); // Instant UI Feedback
                 
                 if (user) {
-                    console.log("User logged in: Syncing ALL data...");
-                    // Sync User Data
+                    console.log("User detected. Syncing cloud data...");
+                    // Sync in background - logic inside handles errors gracefully
                     await syncDataFromCloud();
-                    // Sync Admin/Global Data (Now that we have permissions)
-                    await syncGlobalData();
-                    // Refresh Admin Views if open
+                    await syncGlobalData(); 
+                    
                     if(isAdminLoggedIn) {
                         renderAdminSettings();
                         renderAdminRankings();
                     }
+                } else {
+                    // Even if guest, try to get global habits (read-only)
+                    syncGlobalData().catch(e => console.log("Guest global sync skipped"));
                 }
             });
+        } else {
+            // Fallback for no-auth environment
+            syncGlobalData();
         }
         
+        // 4. Navigate
         navigate('tracker');
     };
 
@@ -169,17 +173,12 @@ const app = (() => {
         try {
             const doc = await db.collection('admin').doc('config').get();
             if(doc.exists) {
-                console.log("Global Admin Data fetched from Cloud.");
                 globalState = { ...defaultGlobalData, ...doc.data() };
                 ensureGlobalStructure();
-                // Update Local Cache
                 localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
-                // Refresh Shared View immediately
                 if(viewState.activeView === 'shared') renderSharedHabits();
             } else {
-                console.log("No Global Config on Cloud. Attempting to upload local...");
-                // Only upload if we have data, otherwise we might overwrite cloud with defaults on a race condition
-                if(currentUser) saveGlobalData(); 
+                if(currentUser && isAdminLoggedIn) saveGlobalData(); 
             }
         } catch(e) { 
             console.warn("Could not fetch Global Admin data (Offline/Permission): Using Local."); 
@@ -862,7 +861,7 @@ const authManager = {
         if(window.authMode === 'register') {
             auth.createUserWithEmailAndPassword(email, pass)
                 .then((cred) => {
-                    db.collection('users').doc(cred.user.uid).set({ profile: { email: email } }, { merge: true });
+                    if(db) db.collection('users').doc(cred.user.uid).set({ profile: { email: email } }, { merge: true });
                 })
                 .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
         } else {
