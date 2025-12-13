@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FORGE | Habit Tracker</title>
     
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -28,28 +27,22 @@
         }
     </script>
 
-    <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <!-- Custom Styles -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-forge-light text-gray-800 transition-colors duration-300 dark:bg-forge-dark dark:text-gray-200 font-sans overflow-hidden">
 
-    <!-- Mobile Menu Button -->
     <button id="mobile-menu-btn" class="md:hidden absolute top-4 left-4 z-50 p-2 rounded-lg bg-white shadow-md dark:bg-gray-800">
         <i class="fa-solid fa-bars"></i>
     </button>
 
     <div class="flex h-screen w-full">
         
-        <!-- Sidebar -->
         <aside id="sidebar" class="w-64 bg-white dark:bg-gray-900 h-full shadow-xl transform -translate-x-full md:translate-x-0 transition-all duration-300 absolute md:relative z-40 flex flex-col justify-between group overflow-hidden">
             <div>
-                <!-- Header / Toggle -->
                 <div class="p-6 flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition" onclick="app.toggleSidebar()">
                     <i class="fa-solid fa-fire text-2xl text-violet-500 flex-shrink-0"></i>
                     <h1 class="text-2xl font-bold tracking-tight sidebar-text whitespace-nowrap transition-opacity duration-300">FORGE</h1>
@@ -58,8 +51,13 @@
                 <nav class="mt-6 px-4 space-y-2">
                     <button onclick="app.navigate('tracker')" class="nav-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-violet-50 dark:hover:bg-gray-800 transition-all text-left active-nav">
                         <i class="fa-solid fa-calendar-check w-5 text-center flex-shrink-0"></i>
-                        <span class="sidebar-text whitespace-nowrap transition-opacity duration-300">Tracker</span>
+                        <span class="sidebar-text whitespace-nowrap transition-opacity duration-300">My Tracker</span>
                     </button>
+                    <button onclick="app.navigate('shared')" class="nav-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-pink-50 dark:hover:bg-gray-800 transition-all text-left">
+                        <i class="fa-solid fa-users w-5 text-center flex-shrink-0 text-pink-500"></i>
+                        <span class="sidebar-text whitespace-nowrap transition-opacity duration-300">Shared Habits</span>
+                    </button>
+                    
                     <button onclick="app.navigate('analytics')" class="nav-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-violet-50 dark:hover:bg-gray-800 transition-all text-left">
                         <i class="fa-solid fa-chart-pie w-5 text-center flex-shrink-0"></i>
                         <span class="sidebar-text whitespace-nowrap transition-opacity duration-300">Analytics</span>
@@ -71,24 +69,28 @@
                 </nav>
             </div>
 
-            <!-- Profile / User Button -->
-            <div class="p-4 border-t border-gray-100 dark:border-gray-800 cursor-pointer" onclick="app.navigate('profile')">
-                <div class="bg-violet-50 dark:bg-gray-800 p-3 rounded-xl flex items-center gap-3 overflow-hidden hover:bg-violet-100 dark:hover:bg-gray-700 transition">
-                    <div id="user-avatar" class="bg-violet-500 text-white w-10 h-10 min-w-[2.5rem] rounded-full flex items-center justify-center font-bold flex-shrink-0">
-                        <i class="fa-solid fa-user"></i>
-                    </div>
-                    <div class="sidebar-text whitespace-nowrap transition-opacity duration-300">
-                        <p class="text-xs text-gray-500 dark:text-gray-400" id="user-status-text">Guest Mode</p>
-                        <p class="font-bold text-violet-600 dark:text-violet-400 text-sm">Profile & Sync</p>
+            <div class="space-y-2">
+                <button onclick="app.navigate('admin-login')" class="w-full flex items-center gap-4 px-8 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition text-sm">
+                    <i class="fa-solid fa-lock w-5 text-center flex-shrink-0"></i>
+                    <span class="sidebar-text whitespace-nowrap transition-opacity duration-300">Admin Panel</span>
+                </button>
+
+                <div class="p-4 border-t border-gray-100 dark:border-gray-800 cursor-pointer" onclick="app.navigate('profile')">
+                    <div class="bg-violet-50 dark:bg-gray-800 p-3 rounded-xl flex items-center gap-3 overflow-hidden hover:bg-violet-100 dark:hover:bg-gray-700 transition">
+                        <div id="user-avatar" class="bg-violet-500 text-white w-10 h-10 min-w-[2.5rem] rounded-full flex items-center justify-center font-bold flex-shrink-0">
+                            <i class="fa-solid fa-user"></i>
+                        </div>
+                        <div class="sidebar-text whitespace-nowrap transition-opacity duration-300">
+                            <p class="text-xs text-gray-500 dark:text-gray-400" id="user-status-text">Guest Mode</p>
+                            <p class="font-bold text-violet-600 dark:text-violet-400 text-sm">Profile & Sync</p>
+                        </div>
                     </div>
                 </div>
             </div>
         </aside>
 
-        <!-- Main Content -->
         <main class="flex-1 h-full overflow-y-auto p-6 md:p-10 relative" id="main-content">
             
-            <!-- Header Date & Progress -->
             <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 pt-10 md:pt-0">
                 <div>
                     <h2 id="current-date-display" class="text-3xl font-bold text-gray-900 dark:text-white mb-1">Loading...</h2>
@@ -107,11 +109,10 @@
                 </div>
             </header>
 
-            <!-- SECTION: TRACKER -->
             <section id="view-tracker" class="view-section animate-fade-in">
                 <div class="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm mb-6">
                     <button onclick="app.changeMonth(-1)" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"><i class="fa-solid fa-chevron-left"></i></button>
-                    <h3 id="calendar-month-year" class="text-xl font-bold">October 2023</h3>
+                    <h3 id="calendar-month-year" class="text-xl font-bold">Loading...</h3>
                     <button onclick="app.changeMonth(1)" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"><i class="fa-solid fa-chevron-right"></i></button>
                 </div>
 
@@ -128,19 +129,42 @@
                 </div>
             </section>
 
-            <!-- SECTION: ANALYTICS -->
+            <section id="view-shared" class="view-section hidden animate-fade-in">
+                <div class="mb-6 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-2xl font-bold text-pink-600">Shared Habits</h3>
+                        <p class="text-sm text-gray-500">Global challenges tracked by everyone.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="app.changeSharedMonth(-1)" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"><i class="fa-solid fa-chevron-left"></i></button>
+                        <span id="shared-month-year" class="font-bold self-center"></span>
+                        <button onclick="app.changeSharedMonth(1)" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition"><i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto rounded-xl shadow-sm border border-pink-100 dark:border-pink-900 bg-white dark:bg-gray-900">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr>
+                                <th class="p-4 border-b border-r dark:border-gray-700 w-48 bg-pink-50 dark:bg-gray-800 sticky left-0 z-10 text-pink-700 dark:text-pink-400">Global Habit</th>
+                                <th class="p-4 border-b dark:border-gray-700 min-w-[300px]" id="shared-header-row"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="shared-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
             <section id="view-analytics" class="view-section hidden animate-fade-in">
                 <div class="mb-6 flex flex-col gap-4">
                     <h3 class="text-2xl font-bold">Analytics Dashboard</h3>
                     
                     <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm flex flex-wrap gap-4 items-end border border-gray-100 dark:border-gray-700">
-                        
                         <div class="flex-1 min-w-[200px]">
                             <label class="text-xs font-bold text-gray-400 uppercase">Target</label>
                             <select id="analytics-habit-select" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600" onchange="app.renderAnalytics()">
                             </select>
                         </div>
-
                         <div class="flex-1 min-w-[150px]">
                             <label class="text-xs font-bold text-gray-400 uppercase">Period</label>
                             <select id="analytics-period-select" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600" onchange="app.handlePeriodChange()">
@@ -150,18 +174,10 @@
                                 <option value="custom">Custom Range</option>
                             </select>
                         </div>
-
                         <div id="custom-date-controls" class="flex gap-2 hidden">
-                            <div>
-                                <label class="text-xs font-bold text-gray-400 uppercase">From</label>
-                                <input type="date" id="date-start" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600" onchange="app.renderAnalytics()">
-                            </div>
-                            <div>
-                                <label class="text-xs font-bold text-gray-400 uppercase">To</label>
-                                <input type="date" id="date-end" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600" onchange="app.renderAnalytics()">
-                            </div>
+                            <div><input type="date" id="date-start" class="w-full mt-1 p-2 rounded-lg border" onchange="app.renderAnalytics()"></div>
+                            <div><input type="date" id="date-end" class="w-full mt-1 p-2 rounded-lg border" onchange="app.renderAnalytics()"></div>
                         </div>
-
                         <div class="w-32">
                             <label class="text-xs font-bold text-gray-400 uppercase">Visual</label>
                             <select id="analytics-chart-type" class="w-full mt-1 p-2 rounded-lg border bg-gray-50 dark:bg-gray-700 dark:border-gray-600" onchange="app.renderAnalytics()">
@@ -175,19 +191,11 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
                     <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 col-span-1 lg:col-span-2">
-                        <h4 class="font-bold text-gray-500 mb-4 uppercase text-sm">Performance Overview</h4>
-                        <div class="relative h-72 w-full">
-                            <canvas id="mainChart"></canvas>
-                        </div>
+                        <div class="relative h-72 w-full"><canvas id="mainChart"></canvas></div>
                     </div>
-
                     <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-                        <h4 class="font-bold text-gray-500 mb-4 uppercase text-sm">Success Rate (Period)</h4>
-                        <div class="relative h-60 w-full flex justify-center">
-                            <canvas id="consistencyChart"></canvas>
-                        </div>
+                        <div class="relative h-60 w-full flex justify-center"><canvas id="consistencyChart"></canvas></div>
                     </div>
-
                     <div class="bg-lavender dark:bg-gray-700 p-6 rounded-2xl shadow-sm flex flex-col justify-center items-center text-center">
                         <i class="fa-solid fa-trophy text-4xl text-yellow-500 mb-2"></i>
                         <h4 class="font-bold text-lg">Completion Count</h4>
@@ -197,10 +205,8 @@
                 </div>
             </section>
 
-            <!-- SECTION: SETTINGS -->
             <section id="view-settings" class="view-section hidden animate-fade-in">
                 <h3 class="text-2xl font-bold mb-6">Settings & Customization</h3>
-
                 <div class="space-y-6 max-w-2xl">
                     <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm">
                         <h4 class="font-bold mb-4 flex items-center gap-2"><i class="fa-solid fa-palette"></i> Appearance</h4>
@@ -229,28 +235,134 @@
                 </div>
             </section>
 
-            <!-- SECTION: PROFILE & AUTH -->
+            <section id="view-admin-login" class="view-section hidden animate-fade-in h-full">
+                <div class="max-w-md mx-auto mt-20 p-8 bg-white dark:bg-gray-800 rounded-2xl shadow-xl text-center border-t-4 border-gray-800">
+                    <i class="fa-solid fa-user-shield text-5xl text-gray-800 dark:text-white mb-4"></i>
+                    <h2 class="text-2xl font-bold mb-2">Admin Access</h2>
+                    <p class="text-sm text-gray-500 mb-6">Enter Admin Password to continue.</p>
+                    
+                    <form onsubmit="event.preventDefault(); app.adminLogin();" class="space-y-4">
+                        <input type="password" id="admin-password-input" placeholder="Admin Password" class="w-full p-3 rounded-xl border bg-gray-50 dark:bg-gray-700 focus:ring-2 focus:ring-gray-500 outline-none">
+                        <button type="submit" class="w-full py-3 bg-gray-800 text-white rounded-xl font-bold hover:bg-gray-900 transition">Unlock Panel</button>
+                    </form>
+                    <p id="admin-login-error" class="text-red-500 text-sm mt-4 hidden">Access Denied.</p>
+                </div>
+            </section>
+
+            <section id="view-admin-panel" class="view-section hidden animate-fade-in">
+                <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+                    <h2 class="text-3xl font-bold flex items-center gap-2"><i class="fa-solid fa-shield-halved"></i> Admin Dashboard</h2>
+                    <button onclick="app.adminLogout()" class="text-red-500 text-sm font-bold hover:underline">Log Out</button>
+                </div>
+
+                <div class="flex border-b dark:border-gray-700 mb-6">
+                    <button onclick="app.switchAdminTab('tracker')" id="tab-admin-tracker" class="px-6 py-3 text-sm font-medium hover:text-gray-800 dark:hover:text-white transition admin-tab-active">User Tracker</button>
+                    <button onclick="app.switchAdminTab('ranking')" id="tab-admin-ranking" class="px-6 py-3 text-sm font-medium hover:text-gray-800 dark:hover:text-white transition">Rankings</button>
+                    <button onclick="app.switchAdminTab('settings')" id="tab-admin-settings" class="px-6 py-3 text-sm font-medium hover:text-gray-800 dark:hover:text-white transition">Admin Settings</button>
+                </div>
+
+                <div id="admin-section-tracker" class="admin-subview">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="col-span-1 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm h-fit">
+                            <h4 class="font-bold mb-3 uppercase text-xs text-gray-500">Select User</h4>
+                            <div id="admin-user-list" class="space-y-2 max-h-96 overflow-y-auto pr-2">
+                                <p class="text-sm text-gray-400">Loading users...</p>
+                            </div>
+                        </div>
+                        <div class="col-span-1 md:col-span-2 space-y-6">
+                            <div id="admin-user-stats-container" class="hidden">
+                                <h3 class="text-xl font-bold mb-4">Shared Habits: <span id="admin-selected-user-name" class="text-violet-600"></span></h3>
+                                
+                                <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm mb-4">
+                                    <canvas id="adminUserChart" height="200"></canvas>
+                                </div>
+                                
+                                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
+                                    <table class="w-full text-sm text-left">
+                                        <thead class="bg-gray-50 dark:bg-gray-700 text-xs uppercase text-gray-500">
+                                            <tr>
+                                                <th class="p-3">Shared Habit</th>
+                                                <th class="p-3">Current Month</th>
+                                                <th class="p-3">Total Days</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="admin-user-stats-body"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div id="admin-select-prompt" class="flex flex-col items-center justify-center h-64 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
+                                <i class="fa-solid fa-arrow-left text-2xl mb-2"></i>
+                                <p>Select a user to view shared statistics</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="admin-section-ranking" class="admin-subview hidden">
+                    <div class="flex gap-4 mb-6 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm">
+                        <div class="flex-1">
+                            <label class="text-xs font-bold text-gray-400">Shared Habit</label>
+                            <select id="admin-rank-habit" class="w-full mt-1 p-2 border rounded bg-transparent" onchange="app.renderAdminRankings()"></select>
+                        </div>
+                        <div class="flex-1">
+                            <label class="text-xs font-bold text-gray-400">Month</label>
+                            <input type="month" id="admin-rank-month" class="w-full mt-1 p-2 border rounded bg-transparent" onchange="app.renderAdminRankings()">
+                        </div>
+                    </div>
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
+                        <table class="w-full text-left">
+                            <thead class="bg-violet-50 dark:bg-gray-700 border-b">
+                                <tr>
+                                    <th class="p-4 w-16">Rank</th>
+                                    <th class="p-4">User</th>
+                                    <th class="p-4 text-right">Days Completed</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-ranking-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="admin-section-settings" class="admin-subview hidden space-y-6">
+                    
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border-l-4 border-pink-500">
+                        <h4 class="font-bold text-lg mb-4">Manage Shared Habits</h4>
+                        <div id="admin-shared-habits-list" class="space-y-3 mb-4"></div>
+                        
+                        <div class="flex gap-2">
+                            <input type="text" id="new-shared-habit-name" placeholder="Enter new shared habit name..." class="flex-1 p-2 border rounded dark:bg-gray-700">
+                            <button onclick="app.addSharedHabit()" class="px-4 py-2 bg-pink-500 text-white rounded font-bold hover:bg-pink-600">Add</button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border-l-4 border-gray-800">
+                        <h4 class="font-bold text-lg mb-4">Security Settings</h4>
+                        <div class="space-y-3 max-w-md">
+                            <label class="block text-sm text-gray-500">Change Resettable Admin Password</label>
+                            <input type="password" id="admin-old-pass" placeholder="Current Resettable Password" class="w-full p-2 border rounded dark:bg-gray-700">
+                            <input type="password" id="admin-new-pass" placeholder="New Password" class="w-full p-2 border rounded dark:bg-gray-700">
+                            <button onclick="app.updateAdminPassword()" class="w-full py-2 bg-gray-800 text-white rounded font-bold hover:bg-gray-900">Update Password</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section id="view-profile" class="view-section hidden animate-fade-in h-full">
                 <div class="max-w-md mx-auto mt-10">
-                    
-                    <!-- Not Logged In View -->
                     <div id="auth-forms" class="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl text-center">
                         <div class="mb-6">
                             <i class="fa-brands fa-google text-4xl text-violet-500 mb-2"></i>
                             <h2 class="text-2xl font-bold">Sync with Cloud</h2>
                             <p class="text-gray-500 text-sm mt-2">Sign in to save your habits across devices.</p>
                         </div>
-
                         <button onclick="authManager.signInGoogle()" class="w-full py-3 px-4 bg-white border border-gray-300 rounded-xl shadow-sm hover:bg-gray-50 flex items-center justify-center gap-3 transition mb-4 text-gray-800 font-medium">
                             <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-5 h-5" alt="Google">
                             Continue with Google
                         </button>
-
                         <div class="relative my-6">
                             <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200 dark:border-gray-700"></div></div>
                             <div class="relative flex justify-center text-sm"><span class="px-2 bg-white dark:bg-gray-800 text-gray-500">Or continue with email</span></div>
                         </div>
-
                         <form onsubmit="event.preventDefault(); authManager.handleEmailAuth();" class="space-y-3">
                             <input type="email" id="auth-email" placeholder="Email address" class="w-full p-3 rounded-xl border bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
                             <input type="password" id="auth-password" placeholder="Password" class="w-full p-3 rounded-xl border bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
@@ -262,7 +374,6 @@
                         <p id="auth-error" class="text-red-500 text-sm mt-3 hidden"></p>
                     </div>
 
-                    <!-- Logged In View -->
                     <div id="profile-info" class="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl text-center hidden">
                         <img id="profile-pic" src="" alt="User" class="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-violet-100">
                         <h2 id="profile-name" class="text-2xl font-bold mb-1">User Name</h2>
@@ -277,19 +388,16 @@
                             Sign Out
                         </button>
                     </div>
-
                 </div>
             </section>
 
         </main>
     </div>
 
-    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-    <!-- App Script -->
     <script src="script.js"></script>
 </body>
 </html>
