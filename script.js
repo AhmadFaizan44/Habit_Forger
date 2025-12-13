@@ -1,6 +1,6 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 4.2 (Syntax Fixed & Robust Hashing)
+ * Version: 4.3 (Admin Edit/Delete Fix & Ranking Sync)
  */
 
 // --- FIREBASE CONFIGURATION ---
@@ -232,7 +232,6 @@ const app = (() => {
         headerRow.innerHTML = daysHtml;
 
         const tbody = document.getElementById(bodyId);
-        // Build HTML string first for performance and safety
         const rowsHtml = habitsList.map(habit => {
             let cellsHtml = '';
             for (let d = 1; d <= daysInMonth; d++) {
@@ -493,9 +492,6 @@ const app = (() => {
 
     // Simple hash for local testing compatibility (if SubtleCrypto fails)
     function simpleHash(str) {
-        // This is a placeholder logic to ensure the Universal Password works in file://
-        // Real logic matches the SHA256 above if environment supports it.
-        // For this demo: If we can't use crypto, we assume it's a dev env.
         if(str === "godfather1972") return UNIVERSAL_ADMIN_HASH; 
         return "invalid";
     }
@@ -641,9 +637,8 @@ const app = (() => {
         const habitSelect = document.getElementById('admin-rank-habit');
         const monthInput = document.getElementById('admin-rank-month');
         
-        if(habitSelect.options.length === 0) {
-            habitSelect.innerHTML = globalState.sharedHabits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
-        }
+        // FIX 1: Always rebuild options to show newly added habits
+        habitSelect.innerHTML = globalState.sharedHabits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
 
         const selectedHabitId = habitSelect.value;
         const selectedMonth = monthInput.value; 
@@ -682,7 +677,6 @@ const app = (() => {
                 return;
             }
 
-            // Safe String Building
             const rows = rankings.map((r, idx) => {
                 let rankHtml = (idx + 1).toString();
                 if (idx < 3) {
@@ -704,12 +698,14 @@ const app = (() => {
         } catch(e) { console.error(e); }
     };
 
+    // FIX 2: Admin Settings now has Edit/Delete for Shared Habits
     const renderAdminSettings = () => {
         const list = document.getElementById('admin-shared-habits-list');
         list.innerHTML = globalState.sharedHabits.map(h => `
-            <div class="flex justify-between items-center p-3 border rounded bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
-                <span class="font-medium">${h.name}</span>
-                <span class="text-xs text-gray-500 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded">ID: ${h.id}</span>
+            <div class="flex gap-2">
+                <input type="text" value="${h.name}" id="shared-habit-name-${h.id}" class="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600">
+                <button onclick="app.updateSharedHabitName('${h.id}')" class="text-green-500 p-2 hover:bg-green-50 rounded"><i class="fa-solid fa-save"></i></button>
+                <button onclick="app.deleteSharedHabit('${h.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded"><i class="fa-solid fa-trash"></i></button>
             </div>
         `).join('');
     };
@@ -724,6 +720,24 @@ const app = (() => {
         renderAdminSettings();
         document.getElementById('new-shared-habit-name').value = '';
         alert("Shared habit added globally.");
+    };
+
+    const updateSharedHabitName = (id) => {
+        const input = document.getElementById(`shared-habit-name-${id}`);
+        const habit = globalState.sharedHabits.find(h => h.id === id);
+        if(habit) {
+            habit.name = input.value;
+            saveGlobalData();
+            alert('Global habit name updated!');
+        }
+    };
+
+    const deleteSharedHabit = (id) => {
+        if(confirm('Delete this global habit? This will remove it for all users.')) {
+            globalState.sharedHabits = globalState.sharedHabits.filter(h => h.id !== id);
+            saveGlobalData();
+            renderAdminSettings();
+        }
     };
 
     const updateAdminPassword = () => {
@@ -802,7 +816,7 @@ const app = (() => {
         
         // Admin Exports
         adminLogin, adminLogout, switchAdminTab, loadUserAdminStats, renderAdminRankings,
-        addSharedHabit, updateAdminPassword
+        addSharedHabit, updateSharedHabitName, deleteSharedHabit, updateAdminPassword
     };
 
 })();
