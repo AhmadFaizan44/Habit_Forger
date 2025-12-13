@@ -1,6 +1,6 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 4.2 (Syntax Fixed & Robust Hashing)
+ * Version: 5.0 (Universal Persistence Fix)
  */
 
 // --- FIREBASE CONFIGURATION ---
@@ -24,34 +24,37 @@ try {
 }
 
 // --- CONSTANTS & ADMIN SECURITY ---
-// SHA-256 Hash for 'godfather1972'
 const UNIVERSAL_ADMIN_HASH = "89934ea55110ebd089448fc84d668a828904257d138fadb0fbc9bfd8227d109d";
 
 const app = (() => {
     // --- State Management ---
-    const defaultData = {
+    
+    // 1. User Data (Personal)
+    const defaultUserData = {
         habits: [
             { id: 1, name: "Morning Gym" },
             { id: 2, name: "Read 30 Mins" },
             { id: 3, name: "Drink 2L Water" }
         ],
-        records: {}, // Personal Records
-        sharedRecords: {}, // { 'YYYY-MM-DD': ['shared_1'] } - Tracks completion of shared habits
+        records: {}, // { 'YYYY-MM-DD': [1, 2] }
+        sharedRecords: {}, // { 'YYYY-MM-DD': ['shared_1'] }
         settings: { theme: 'light', accent: '#8B5CF6' }
     };
 
-    // Global Admin Data (Synced from 'admin/config' doc)
-    let globalState = {
+    // 2. Global Admin Data (Universal)
+    const defaultGlobalData = {
         sharedHabits: [
             { id: 'shared_1', name: "Global: 10k Steps" },
             { id: 'shared_2', name: "Global: No Sugar" }
         ],
         adminSettings: {
-            resettablePass: "admin123" // Default Resettable Password
+            resettablePass: "admin123"
         }
     };
 
-    let state = defaultData;
+    let state = defaultUserData; // Current User State
+    let globalState = defaultGlobalData; // Shared Admin State
+    
     let currentUser = null;
     let isAdminLoggedIn = false;
     
@@ -68,24 +71,27 @@ const app = (() => {
     // --- Core Functions ---
 
     const init = async () => {
-        // Load local first
-        const local = localStorage.getItem('forge_data');
-        if(local) state = JSON.parse(local);
-        
+        // 1. Load User Data (Local)
+        const localUser = localStorage.getItem('forge_data');
+        if(localUser) state = JSON.parse(localUser);
         if(!state.sharedRecords) state.sharedRecords = {};
 
-        // Load Global Admin Data
-        await syncGlobalData();
+        // 2. Load Global Data (Local Fallback)
+        const localGlobal = localStorage.getItem('forge_global_admin');
+        if(localGlobal) globalState = JSON.parse(localGlobal);
 
+        // 3. Try Cloud Sync
+        await syncGlobalData(); // Fetch latest admin config from cloud
+        
+        // 4. UI Init
         applyTheme();
         renderHeader();
         renderSidebar();
-        navigate('tracker');
         
         setupDatePickers();
         setupEventListeners();
 
-        // Check Firebase Auth
+        // 5. Auth Listener
         if(auth) {
             auth.onAuthStateChanged(user => {
                 currentUser = user;
@@ -93,45 +99,69 @@ const app = (() => {
                 if (user) syncDataFromCloud();
             });
         }
+        
+        // Start at tracker
+        navigate('tracker');
     };
 
     const setupDatePickers = () => {
         const today = new Date().toISOString().split('T')[0];
         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        
         const endInput = document.getElementById('date-end');
         if(endInput) {
             endInput.value = today;
             document.getElementById('date-start').value = lastWeek;
         }
-        document.getElementById('admin-rank-month').value = today.substring(0, 7);
+        
+        const rankMonth = document.getElementById('admin-rank-month');
+        if(rankMonth) rankMonth.value = today.substring(0, 7);
     };
 
+    // --- PERSISTENCE LAYERS ---
+
+    // Save User Data (Personal)
     const saveData = () => {
+        // Local
         localStorage.setItem('forge_data', JSON.stringify(state));
         renderHeader();
+        
+        // Cloud
         if (currentUser && db) {
             db.collection('users').doc(currentUser.uid).set(state, { merge: true })
-                .catch(err => console.error("Cloud Save Error", err));
+                .catch(err => console.error("Cloud User Save Error", err));
         }
     };
 
+    // Save Global Data (Admin) - UNIVERSAL FIX
     const saveGlobalData = () => {
+        // 1. Save Local (Immediate Update for current user/admin)
+        localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
+        
+        // 2. Save Cloud (Propagate to everyone)
         if(db) {
             db.collection('admin').doc('config').set(globalState)
-                .catch(err => console.error("Admin Save Error", err));
+                .then(() => console.log("Global config synced to cloud"))
+                .catch(err => console.error("Admin Cloud Save Error", err));
         }
     };
 
+    // Load Global Data
     const syncGlobalData = async () => {
         if(db) {
             try {
                 const doc = await db.collection('admin').doc('config').get();
                 if(doc.exists) {
                     globalState = doc.data();
+                    // Update local storage to match cloud
+                    localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
                 } else {
+                    // Initialize cloud if empty
                     saveGlobalData();
                 }
-            } catch(e) { console.log("Using default global state"); }
+            } catch(e) { 
+                console.log("Offline or No Admin Config: Using local global state"); 
+            }
         }
     };
 
@@ -141,14 +171,16 @@ const app = (() => {
             const doc = await db.collection('users').doc(currentUser.uid).get();
             if (doc.exists) {
                 const cloudData = doc.data();
-                state = { ...defaultData, ...cloudData };
-                saveData(); 
+                state = { ...defaultUserData, ...cloudData };
+                if(!state.sharedRecords) state.sharedRecords = {};
+                
+                localStorage.setItem('forge_data', JSON.stringify(state));
                 navigate(viewState.activeView); 
                 applyTheme();
             } else {
                 saveData();
             }
-        } catch (e) { console.error("Sync error", e); }
+        } catch (e) { console.error("User Sync error", e); }
     };
 
     // --- Helper: Date Handling ---
@@ -158,7 +190,7 @@ const app = (() => {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // --- Sidebar & Nav ---
+    // --- NAVIGATION ---
     const toggleSidebar = () => {
         viewState.isSidebarCollapsed = !viewState.isSidebarCollapsed;
         const sidebar = document.getElementById('sidebar');
@@ -178,12 +210,15 @@ const app = (() => {
         const target = document.getElementById(targetId);
         if(target) target.classList.remove('hidden');
 
+        // Update Nav Active Classes
         document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active-nav'));
-        if(viewName === 'tracker') document.querySelectorAll('.nav-btn')[0].classList.add('active-nav');
-        if(viewName === 'shared') document.querySelectorAll('.nav-btn')[1].classList.add('active-nav');
-        if(viewName === 'analytics') document.querySelectorAll('.nav-btn')[2].classList.add('active-nav');
-        if(viewName === 'settings') document.querySelectorAll('.nav-btn')[3].classList.add('active-nav');
+        const navs = document.querySelectorAll('.nav-btn');
+        if(viewName === 'tracker' && navs[0]) navs[0].classList.add('active-nav');
+        if(viewName === 'shared' && navs[1]) navs[1].classList.add('active-nav');
+        if(viewName === 'analytics' && navs[2]) navs[2].classList.add('active-nav');
+        if(viewName === 'settings' && navs[3]) navs[3].classList.add('active-nav');
 
+        // Render Views
         if (viewName === 'tracker') renderTracker();
         if (viewName === 'shared') renderSharedHabits();
         if (viewName === 'analytics') renderAnalyticsUI();
@@ -191,7 +226,7 @@ const app = (() => {
         if (viewName === 'admin-panel') renderAdminPanel();
     };
 
-    // --- SECTION: TRACKER & SHARED ---
+    // --- TRACKER & SHARED HABITS UI ---
     const renderTracker = () => {
         const year = viewState.currentDate.getFullYear();
         const month = viewState.currentDate.getMonth();
@@ -202,7 +237,10 @@ const app = (() => {
         const year = viewState.sharedDate.getFullYear();
         const month = viewState.sharedDate.getMonth();
         const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        document.getElementById('shared-month-year').innerText = `${monthNames[month]} ${year}`;
+        
+        const label = document.getElementById('shared-month-year');
+        if(label) label.innerText = `${monthNames[month]} ${year}`;
+        
         renderGrid('shared-body', 'shared-header-row', null, year, month, globalState.sharedHabits, state.sharedRecords, true);
     };
 
@@ -232,7 +270,12 @@ const app = (() => {
         headerRow.innerHTML = daysHtml;
 
         const tbody = document.getElementById(bodyId);
-        // Build HTML string first for performance and safety
+        
+        if(habitsList.length === 0) {
+            tbody.innerHTML = `<tr><td class="p-4 text-gray-400 italic">No habits found. ${isShared ? 'Wait for admin to add some.' : 'Add one in Settings!'}</td></tr>`;
+            return;
+        }
+
         const rowsHtml = habitsList.map(habit => {
             let cellsHtml = '';
             for (let d = 1; d <= daysInMonth; d++) {
@@ -291,7 +334,7 @@ const app = (() => {
         saveData();
     };
 
-    // --- SECTION: ANALYTICS ---
+    // --- ANALYTICS ---
     const renderAnalyticsUI = () => {
         const select = document.getElementById('analytics-habit-select');
         let options = `<option value="all">All Habits (Aggregate)</option>`;
@@ -401,7 +444,7 @@ const app = (() => {
         return { labels, dataPoints, totalCompleted, totalPossible };
     };
 
-    // --- SECTION: SETTINGS ---
+    // --- SETTINGS (USER) ---
     const renderSettings = () => {
         document.getElementById('accent-picker').value = state.settings.accent;
         const list = document.getElementById('settings-habit-list');
@@ -475,47 +518,27 @@ const app = (() => {
     };
 
     // --- ADMIN PANEL LOGIC ---
-    
-    // Secure hashing using Web Crypto API with fallback for local file testing
+
+    // Password Hashing with Fallback
     async function hashPassword(message) {
         const msgBuffer = new TextEncoder().encode(message);
-        if (window.crypto && window.crypto.subtle) {
+        if (window.crypto && window.crypto.subtle && window.location.protocol !== 'file:') {
             try {
                 const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
                 const hashArray = Array.from(new Uint8Array(hashBuffer));
                 return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            } catch (e) { console.warn("Crypto API failed, falling back."); }
+            } catch (e) { console.warn("Crypto API failed."); }
         }
-        // Fallback for file:// context where SubtleCrypto might be missing
-        // NOTE: This is for demo/local compatibility only.
-        return simpleHash(message); 
-    }
-
-    // Simple hash for local testing compatibility (if SubtleCrypto fails)
-    function simpleHash(str) {
-        // This is a placeholder logic to ensure the Universal Password works in file://
-        // Real logic matches the SHA256 above if environment supports it.
-        // For this demo: If we can't use crypto, we assume it's a dev env.
-        if(str === "godfather1972") return UNIVERSAL_ADMIN_HASH; 
-        return "invalid";
+        // Fallback for file:// or insecure contexts
+        return (message === "godfather1972") ? UNIVERSAL_ADMIN_HASH : "invalid";
     }
 
     const adminLogin = async () => {
         const input = document.getElementById('admin-password-input').value;
         const errorMsg = document.getElementById('admin-login-error');
         
-        // 1. Check Universal
-        let inputHash;
-        if(window.crypto && window.crypto.subtle && window.location.protocol !== 'file:') {
-             inputHash = await hashPassword(input);
-        } else {
-             // Bypass for local testing if needed
-             inputHash = (input === "godfather1972") ? UNIVERSAL_ADMIN_HASH : "wrong";
-        }
-
+        const inputHash = await hashPassword(input);
         const isUniversal = (inputHash === UNIVERSAL_ADMIN_HASH);
-
-        // 2. Check Resettable
         const isResettable = (input === globalState.adminSettings.resettablePass);
 
         if (isUniversal || isResettable) {
@@ -551,12 +574,13 @@ const app = (() => {
         switchAdminTab('tracker');
     };
 
+    // Admin: Tracker (User Select)
     const fetchAndRenderUserList = async () => {
         const listEl = document.getElementById('admin-user-list');
         listEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
         
         if(!db) {
-            listEl.innerHTML = "Mock User (No Cloud DB)";
+            listEl.innerHTML = "<div class='p-2 text-sm text-gray-500'>Cloud inactive. Showing only local demo.</div>";
             return;
         }
 
@@ -566,7 +590,7 @@ const app = (() => {
             usersSnap.forEach(doc => {
                 const uData = doc.data();
                 const displayName = uData.profile?.email || doc.id.substring(0,8) + "...";
-                const safeName = displayName.replace(/'/g, "\\'"); // Escape quotes
+                const safeName = displayName.replace(/'/g, "\\'");
                 
                 userHtml += `<div onclick="app.loadUserAdminStats('${doc.id}', '${safeName}')" class="p-2 border rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 text-sm flex items-center justify-between">
                     <span>${displayName}</span> <i class="fa-solid fa-chevron-right text-xs"></i>
@@ -575,7 +599,7 @@ const app = (() => {
             listEl.innerHTML = userHtml || "No users found.";
         } catch (e) {
             console.error(e);
-            listEl.innerHTML = "Error fetching users (Permission denied?)";
+            listEl.innerHTML = "Error fetching users (Check permissions)";
         }
     };
 
@@ -586,7 +610,7 @@ const app = (() => {
 
         try {
             const doc = await db.collection('users').doc(uid).get();
-            const uData = doc.data() || defaultData;
+            const uData = doc.data() || defaultUserData;
             const sharedRecs = uData.sharedRecords || {};
             
             const tbody = document.getElementById('admin-user-stats-body');
@@ -637,79 +661,80 @@ const app = (() => {
         } catch(e) { console.error(e); }
     };
 
+    // Admin: Ranking
     const renderAdminRankings = async () => {
         const habitSelect = document.getElementById('admin-rank-habit');
         const monthInput = document.getElementById('admin-rank-month');
         
-        if(habitSelect.options.length === 0) {
-            habitSelect.innerHTML = globalState.sharedHabits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
-        }
+        // POPULATE DROPDOWN (Fix for missing items)
+        habitSelect.innerHTML = globalState.sharedHabits.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
 
         const selectedHabitId = habitSelect.value;
         const selectedMonth = monthInput.value; 
         const tbody = document.getElementById('admin-ranking-body');
+        
+        if(!selectedHabitId) {
+             tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center">No shared habits defined. Add some in Admin Settings!</td></tr>';
+             return;
+        }
+
         tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center">Calculating...</td></tr>';
 
-        if(!db) return;
-
-        try {
-            const snapshot = await db.collection('users').get();
-            let rankings = [];
-
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                const shared = data.sharedRecords || {};
-                let count = 0;
-                
-                Object.keys(shared).forEach(date => {
-                    if(date.startsWith(selectedMonth) && shared[date].includes(selectedHabitId)) {
-                        count++;
+        // MOCK Ranking for Local Demo (Since DB might be empty)
+        // If DB exists, it overwrites this.
+        let rankings = [];
+        
+        if(db) {
+            try {
+                const snapshot = await db.collection('users').get();
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const shared = data.sharedRecords || {};
+                    let count = 0;
+                    Object.keys(shared).forEach(date => {
+                        if(date.startsWith(selectedMonth) && shared[date].includes(selectedHabitId)) {
+                            count++;
+                        }
+                    });
+                    if(count > 0) {
+                        rankings.push({ email: data.profile?.email || "User " + doc.id.substring(0,5), count });
                     }
                 });
+            } catch(e) { console.warn("Ranking DB fetch failed (Offline?)"); }
+        }
 
-                if(count > 0) {
-                    rankings.push({ 
-                        email: data.profile?.email || "User " + doc.id.substring(0,5), 
-                        count 
-                    });
-                }
-            });
+        // Sort & Render
+        rankings.sort((a, b) => b.count - a.count);
 
-            rankings.sort((a, b) => b.count - a.count);
+        if(rankings.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500">No data found for this period.</td></tr>';
+            return;
+        }
 
-            if(rankings.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500">No activity recorded for this period.</td></tr>';
-                return;
+        tbody.innerHTML = rankings.map((r, idx) => {
+            let rankHtml = (idx + 1).toString();
+            if (idx < 3) {
+                const color = idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'orange';
+                rankHtml = `<i class="fa-solid fa-medal text-${color}-500"></i>`;
             }
-
-            // Safe String Building
-            const rows = rankings.map((r, idx) => {
-                let rankHtml = (idx + 1).toString();
-                if (idx < 3) {
-                    const color = idx === 0 ? 'yellow' : idx === 1 ? 'gray' : 'orange';
-                    rankHtml = `<i class="fa-solid fa-medal text-${color}-500"></i>`;
-                }
-                
-                return `
-                    <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <td class="p-4 font-bold">${rankHtml}</td>
-                        <td class="p-4">${r.email}</td>
-                        <td class="p-4 text-right font-mono font-bold">${r.count}</td>
-                    </tr>
-                `;
-            }).join('');
-            
-            tbody.innerHTML = rows;
-
-        } catch(e) { console.error(e); }
+            return `
+                <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td class="p-4 font-bold">${rankHtml}</td>
+                    <td class="p-4">${r.email}</td>
+                    <td class="p-4 text-right font-mono font-bold">${r.count}</td>
+                </tr>
+            `;
+        }).join('');
     };
 
+    // Admin: Settings (ADD, EDIT, DELETE)
     const renderAdminSettings = () => {
         const list = document.getElementById('admin-shared-habits-list');
         list.innerHTML = globalState.sharedHabits.map(h => `
-            <div class="flex justify-between items-center p-3 border rounded bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
-                <span class="font-medium">${h.name}</span>
-                <span class="text-xs text-gray-500 bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded">ID: ${h.id}</span>
+            <div class="flex gap-2 items-center mb-2">
+                <input type="text" value="${h.name}" id="shared-habit-name-${h.id}" class="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600">
+                <button onclick="app.updateSharedHabitName('${h.id}')" class="text-green-500 p-2 hover:bg-green-50 rounded" title="Save Name"><i class="fa-solid fa-save"></i></button>
+                <button onclick="app.deleteSharedHabit('${h.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded" title="Delete Habit"><i class="fa-solid fa-trash"></i></button>
             </div>
         `).join('');
     };
@@ -720,10 +745,29 @@ const app = (() => {
         
         const newId = `shared_${Date.now()}`;
         globalState.sharedHabits.push({ id: newId, name });
-        saveGlobalData();
+        saveGlobalData(); // Universal Save
+        
         renderAdminSettings();
         document.getElementById('new-shared-habit-name').value = '';
         alert("Shared habit added globally.");
+    };
+
+    const updateSharedHabitName = (id) => {
+        const input = document.getElementById(`shared-habit-name-${id}`);
+        const habit = globalState.sharedHabits.find(h => h.id === id);
+        if(habit) {
+            habit.name = input.value;
+            saveGlobalData(); // Universal Save
+            alert('Global habit name updated!');
+        }
+    };
+
+    const deleteSharedHabit = (id) => {
+        if(confirm('Delete this global habit? This will remove it for all users.')) {
+            globalState.sharedHabits = globalState.sharedHabits.filter(h => h.id !== id);
+            saveGlobalData(); // Universal Save
+            renderAdminSettings();
+        }
     };
 
     const updateAdminPassword = () => {
@@ -736,13 +780,13 @@ const app = (() => {
         }
         
         globalState.adminSettings.resettablePass = newPass;
-        saveGlobalData();
+        saveGlobalData(); // Universal Save
         alert("Resettable password updated.");
         document.getElementById('admin-old-pass').value = '';
         document.getElementById('admin-new-pass').value = '';
     };
 
-    // --- Profile Helper ---
+    // --- PROFILE UTILS ---
     const updateProfileUI = (user) => {
         const authForms = document.getElementById('auth-forms');
         const profileInfo = document.getElementById('profile-info');
@@ -785,16 +829,6 @@ const app = (() => {
         document.getElementById('month-progress').innerText = `${monthPct}%`;
     };
 
-    const renderSidebar = () => {
-        const btn = document.getElementById('mobile-menu-btn');
-        const sidebar = document.getElementById('sidebar');
-        btn.onclick = () => { sidebar.classList.toggle('-translate-x-full'); };
-    };
-    
-    const setupEventListeners = () => {
-        window.addEventListener('resize', () => { if(viewState.activeView === 'analytics') renderAnalytics(); });
-    };
-
     return {
         init, navigate, changeMonth, changeSharedMonth, toggleHabit, toggleSharedHabit,
         renderAnalytics, handlePeriodChange, updateAccent, toggleDarkMode, updateHabitName, 
@@ -802,7 +836,7 @@ const app = (() => {
         
         // Admin Exports
         adminLogin, adminLogout, switchAdminTab, loadUserAdminStats, renderAdminRankings,
-        addSharedHabit, updateAdminPassword
+        addSharedHabit, updateSharedHabitName, deleteSharedHabit, updateAdminPassword
     };
 
 })();
@@ -822,9 +856,7 @@ const authManager = {
         if(window.authMode === 'register') {
             auth.createUserWithEmailAndPassword(email, pass)
                 .then((cred) => {
-                    db.collection('users').doc(cred.user.uid).set({
-                        profile: { email: email }
-                    }, { merge: true });
+                    db.collection('users').doc(cred.user.uid).set({ profile: { email: email } }, { merge: true });
                 })
                 .catch(e => { errorMsg.innerText = e.message; errorMsg.classList.remove('hidden'); });
         } else {
@@ -835,5 +867,5 @@ const authManager = {
     logout: () => auth.signOut()
 };
 
-// Initialize App
+// Start
 document.addEventListener('DOMContentLoaded', app.init);
