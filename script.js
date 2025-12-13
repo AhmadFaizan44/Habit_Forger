@@ -1,6 +1,6 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 15.1 (Grid Rendering Fixed + Login Preserved)
+ * Version: 16.0 (Bulletproof UI Init + Login Fix)
  */
 
 // --- 1. FIREBASE CONFIGURATION (Old Keys) ---
@@ -13,16 +13,18 @@ const firebaseConfig = {
     appId: "1:157279686748:web:fbea1f594138ef3b919699"
 };
 
-// --- 2. INITIALIZE FIREBASE ---
+// --- 2. INITIALIZE FIREBASE SAFELY ---
 let auth, db;
 try {
     if (typeof firebase !== 'undefined') {
-        firebase.initializeApp(firebaseConfig);
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
         auth = firebase.auth();
         db = firebase.firestore();
         console.log("Firebase initialized.");
     } else {
-        console.error("Firebase SDK not found.");
+        console.error("Firebase SDK not found in HTML.");
     }
 } catch (e) {
     console.error("Firebase Init Failed:", e);
@@ -31,28 +33,30 @@ try {
 // --- 3. CONSTANTS ---
 const UNIVERSAL_ADMIN_HASH = "89934ea55110ebd089448fc84d668a828904257d138fadb0fbc9bfd8227d109d";
 
-// --- 4. AUTH MANAGER (Login Works) ---
+// --- 4. AUTH MANAGER ---
 const authManager = {
     signInGoogle: () => {
-        if (!auth) return alert("Firebase loading...");
+        if (!auth) return alert("Firebase is offline. Check your internet.");
         const provider = new firebase.auth.GoogleAuthProvider();
         auth.signInWithPopup(provider).catch(e => {
+            console.error(e);
             if (e.code === 'auth/unauthorized-domain') {
-                alert(`DOMAIN ERROR: Add "${window.location.hostname}" to Authorized Domains in Firebase Console.`);
+                alert(`DOMAIN ERROR: Go to Firebase Console -> Authentication -> Settings -> Authorized Domains. \nAdd: ${window.location.hostname}`);
             } else {
-                alert("Login Error: " + e.message);
+                alert("Login Failed: " + e.message);
             }
         });
     },
     handleEmailAuth: () => {
+        if (!auth) return alert("Firebase is offline.");
         const email = document.getElementById('auth-email').value;
         const pass = document.getElementById('auth-password').value;
-        if (!email || !pass) return alert("Enter email/password");
+        if (!email || !pass) return alert("Please enter email and password");
 
         if (window.authMode === 'register') {
             auth.createUserWithEmailAndPassword(email, pass)
                 .then((cred) => {
-                    if (db) db.collection('users').doc(cred.user.uid).set({ profile: { email: email } }, { merge: true });
+                    if(db) db.collection('users').doc(cred.user.uid).set({ profile: { email: email } }, { merge: true });
                 })
                 .catch(e => alert(e.message));
         } else {
@@ -67,11 +71,9 @@ const app = (() => {
     // Default Data
     const defaultUserData = {
         habits: [ { id: 1, name: "Morning Gym" }, { id: 2, name: "Read 30 Mins" }, { id: 3, name: "Drink 2L Water" } ],
-        records: {}, 
-        sharedRecords: {},
+        records: {}, sharedRecords: {},
         settings: { theme: 'light', accent: '#8B5CF6' }
     };
-
     const defaultGlobalData = {
         sharedHabits: [ { id: 'shared_1', name: "Global: 10k Steps" } ],
         adminSettings: { resettablePass: "admin123" }
@@ -81,52 +83,59 @@ const app = (() => {
     let globalState = JSON.parse(JSON.stringify(defaultGlobalData));
     let currentUser = null;
     let isAdminLoggedIn = false;
-    // Ensure dates are valid Date objects immediately
     let viewState = { currentDate: new Date(), sharedDate: new Date(), activeView: 'tracker', isSidebarCollapsed: false };
 
-    // --- INIT ---
-    const init = async () => {
-        loadLocalData();
-        applyTheme();
-        renderHeader();
-        renderSidebar();
-        setupDatePickers();
+    // --- INITIALIZATION SEQUENCE ---
+    const init = () => {
+        console.log("App starting...");
         
-        // Render Tracker IMMEDIATELY with local data
-        renderGrid(false);
+        // 1. SETUP UI IMMEDIATELY (Do not wait for data)
+        try {
+            setupSidebar();
+            setupDatePickers();
+            setupEventListeners();
+            applyTheme();
+            renderHeader(); // Draw initial header
+            renderGrid(false); // Draw initial blank/local table
+        } catch (e) {
+            console.error("UI Setup Failed:", e);
+        }
 
+        // 2. LOAD DATA
+        loadLocalData();
+
+        // 3. CONNECT FIREBASE (Async)
         if (auth) {
             auth.onAuthStateChanged(user => {
                 currentUser = user;
                 updateProfileUI(user);
                 if (user) {
-                    syncUserData(); 
-                    syncGlobalData(true); 
+                    console.log("User detected:", user.email);
+                    syncUserData();
+                    syncGlobalData(true);
                 }
             });
+        } else {
+            console.warn("Auth not available.");
         }
-        
+
+        // 4. FINAL SETUP
         syncGlobalData(false);
         navigate('tracker');
-        setupEventListeners();
     };
 
-    // --- DATA ---
+    // --- DATA HANDLING ---
     const loadLocalData = () => {
-        const u = localStorage.getItem('forge_data');
-        if(u) {
-            const parsed = JSON.parse(u);
-            state = { ...defaultUserData, ...parsed };
-            // Safety check: ensure habits is an array
-            if(!Array.isArray(state.habits)) state.habits = defaultUserData.habits;
-        }
-        const g = localStorage.getItem('forge_global_admin');
-        if(g) globalState = { ...defaultGlobalData, ...JSON.parse(g) };
-    };
-
-    const saveGlobalData = () => {
-        localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
-        if (db) db.collection('admin').doc('config').set(globalState).catch(console.warn);
+        try {
+            const u = localStorage.getItem('forge_data');
+            if(u) state = { ...defaultUserData, ...JSON.parse(u) };
+            
+            const g = localStorage.getItem('forge_global_admin');
+            if(g) globalState = { ...defaultGlobalData, ...JSON.parse(g) };
+            
+            // Re-render with loaded local data
+            renderGrid(false);
+        } catch(e) { console.error("Local load error", e); }
     };
 
     const saveData = () => {
@@ -135,7 +144,11 @@ const app = (() => {
         if (currentUser && db) db.collection('users').doc(currentUser.uid).set(state, { merge: true }).catch(console.warn);
     };
 
-    // --- SYNC ---
+    const saveGlobalData = () => {
+        localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
+        if (db) db.collection('admin').doc('config').set(globalState).catch(console.warn);
+    };
+
     const syncUserData = async () => {
         if (!currentUser || !db) return;
         try {
@@ -145,7 +158,7 @@ const app = (() => {
                 localStorage.setItem('forge_data', JSON.stringify(state));
                 if(viewState.activeView === 'tracker') renderGrid(false);
             }
-        } catch(e) { console.warn(e); }
+        } catch(e) { console.warn("User Sync Error:", e); }
     };
 
     const syncGlobalData = async (force) => {
@@ -157,12 +170,12 @@ const app = (() => {
                 localStorage.setItem('forge_global_admin', JSON.stringify(globalState));
                 if(viewState.activeView === 'shared') renderGrid(true);
             } else if (force && currentUser) {
-                saveGlobalData(); 
+                saveGlobalData();
             }
-        } catch(e) { console.warn(e); }
+        } catch(e) { console.warn("Global Sync Error:", e); }
     };
 
-    // --- CORE RENDERING (Fixed) ---
+    // --- CORE RENDERING ---
     const getDaysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
     const formatDateKey = (d) => {
         const date = new Date(d);
@@ -170,24 +183,16 @@ const app = (() => {
     };
 
     const renderGrid = (isShared) => {
-        // Ensure date is valid
         const targetDate = isShared ? viewState.sharedDate : viewState.currentDate;
         const year = targetDate.getFullYear();
         const month = targetDate.getMonth();
         const daysInMonth = getDaysInMonth(year, month);
         
-        // Update Title
         const titleId = isShared ? 'shared-month-year' : 'calendar-month-year';
         const elTitle = document.getElementById(titleId);
         if(elTitle) elTitle.innerText = targetDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-        // Select Data Source
-        const list = isShared ? globalState.sharedHabits : state.habits;
-        const records = isShared ? state.sharedRecords : state.records;
-        const bodyId = isShared ? 'shared-body' : 'tracker-body';
         const headerId = isShared ? 'shared-header-row' : 'calendar-header-row';
-
-        // Render Header
         const elHeader = document.getElementById(headerId);
         if (elHeader) {
             let html = '<div class="flex gap-2 pb-2">';
@@ -203,11 +208,14 @@ const app = (() => {
             elHeader.innerHTML = html + '</div>';
         }
 
-        // Render Rows
+        const bodyId = isShared ? 'shared-body' : 'tracker-body';
         const tbody = document.getElementById(bodyId);
+        const list = isShared ? globalState.sharedHabits : state.habits;
+        const records = isShared ? state.sharedRecords : state.records;
+
         if (tbody) {
             if (!list || list.length === 0) {
-                tbody.innerHTML = `<tr><td class="p-4 text-gray-400 italic">No habits found. ${isShared ? 'Wait for admin.' : 'Add one in Settings!'}</td></tr>`;
+                tbody.innerHTML = `<tr><td class="p-4 text-gray-400 italic">No habits found.</td></tr>`;
             } else {
                 tbody.innerHTML = list.map(h => {
                     let cells = '';
@@ -241,7 +249,27 @@ const app = (() => {
     const changeMonth = (d) => { viewState.currentDate.setMonth(viewState.currentDate.getMonth()+d); renderGrid(false); };
     const changeSharedMonth = (d) => { viewState.sharedDate.setMonth(viewState.sharedDate.getMonth()+d); renderGrid(true); };
 
-    // --- UI NAVIGATION ---
+    // --- UI HELPERS ---
+    const setupSidebar = () => {
+        const btn = document.getElementById('mobile-menu-btn');
+        const sidebar = document.getElementById('sidebar');
+        if (btn && sidebar) {
+            // Clone to remove old listeners
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+            newBtn.onclick = () => { sidebar.classList.toggle('-translate-x-full'); };
+        }
+    };
+
+    const toggleSidebar = () => {
+        viewState.isSidebarCollapsed = !viewState.isSidebarCollapsed;
+        const s = document.getElementById('sidebar');
+        if(s) { 
+            if(viewState.isSidebarCollapsed) s.classList.add('sidebar-collapsed'); 
+            else s.classList.remove('sidebar-collapsed'); 
+        }
+    };
+
     const navigate = (v) => {
         if (v.startsWith('admin-panel') && !isAdminLoggedIn) v = 'admin-login';
         viewState.activeView = v;
@@ -250,10 +278,12 @@ const app = (() => {
         const t = document.getElementById(v === 'admin-panel' ? 'view-admin-panel' : `view-${v}`);
         if(t) t.classList.remove('hidden');
 
-        // Nav Active
         document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active-nav'));
         const map = { 'tracker':0, 'shared':1, 'analytics':2, 'settings':3 };
-        if (map[v] !== undefined) document.querySelectorAll('.nav-btn')[map[v]].classList.add('active-nav');
+        if (map[v] !== undefined) {
+            const navs = document.querySelectorAll('.nav-btn');
+            if(navs[map[v]]) navs[map[v]].classList.add('active-nav');
+        }
 
         if (v === 'tracker') renderGrid(false);
         if (v === 'shared') renderGrid(true);
@@ -290,7 +320,8 @@ const app = (() => {
         if(t==='settings') renderAdminSettings();
     };
     const renderAdminSettings = () => {
-        document.getElementById('admin-shared-habits-list').innerHTML = globalState.sharedHabits.map(h => `
+        const el = document.getElementById('admin-shared-habits-list');
+        if(el) el.innerHTML = globalState.sharedHabits.map(h => `
             <div class="flex gap-2 mb-2"><input id="sh-${h.id}" value="${h.name}" class="flex-1 p-2 border rounded dark:bg-gray-700">
             <button onclick="app.saveSH('${h.id}')" class="text-green-500 p-2"><i class="fa-solid fa-save"></i></button>
             <button onclick="app.delSH('${h.id}')" class="text-red-500 p-2"><i class="fa-solid fa-trash"></i></button></div>`).join('');
@@ -308,6 +339,7 @@ const app = (() => {
 
     const fetchUsers = async () => {
         const el = document.getElementById('admin-user-list');
+        if(!el) return;
         el.innerHTML = 'Loading...';
         if(!db) return el.innerHTML = "Offline";
         try {
@@ -318,7 +350,7 @@ const app = (() => {
                 const n = (u.profile && u.profile.email) ? u.profile.email : d.id;
                 el.innerHTML += `<div onclick="app.loadU('${d.id}','${n}')" class="p-2 border rounded cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 truncate">${n}</div>`;
             });
-        } catch(e) { el.innerHTML = "Error fetching."; }
+        } catch(e) { el.innerHTML = "Error fetching users."; }
     };
     const loadU = async (uid, name) => {
         document.getElementById('admin-select-prompt').classList.add('hidden');
@@ -342,8 +374,10 @@ const app = (() => {
         } catch(e) {}
     };
     const renderAdminRankings = async () => {
-        document.getElementById('admin-rank-habit').innerHTML = globalState.sharedHabits.map(h=>`<option value="${h.id}">${h.name}</option>`).join('');
-        const hid = document.getElementById('admin-rank-habit').value;
+        const el = document.getElementById('admin-rank-habit');
+        if(!el) return;
+        el.innerHTML = globalState.sharedHabits.map(h=>`<option value="${h.id}">${h.name}</option>`).join('');
+        const hid = el.value;
         const m = document.getElementById('admin-rank-month').value;
         const tb = document.getElementById('admin-ranking-body');
         if(!hid) return tb.innerHTML = '<tr><td colspan="3" class="p-4">No habits</td></tr>';
@@ -370,17 +404,17 @@ const app = (() => {
         else { f.classList.remove('hidden'); p.classList.add('hidden'); document.getElementById('user-status-text').innerText = "Guest"; }
     };
     const renderHeader = () => {
-        const d = new Date(); document.getElementById('current-date-display').innerText = d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'});
+        const d = new Date(); 
+        const el = document.getElementById('current-date-display');
+        if(el) el.innerText = d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'});
         const k = formatDateKey(d); const t = state.habits.length; const dn = state.records[k]?state.records[k].length:0;
-        document.getElementById('today-progress').innerText = (t===0?0:Math.round((dn/t)*100)) + '%';
-    };
-    const renderSidebar = () => {
-        const b = document.getElementById('mobile-menu-btn'); const s = document.getElementById('sidebar');
-        if(b && s) b.onclick = () => s.classList.toggle('-translate-x-full');
+        const p = document.getElementById('today-progress');
+        if(p) p.innerText = (t===0?0:Math.round((dn/t)*100)) + '%';
     };
     const setupDatePickers = () => {
         const d = new Date().toISOString().split('T')[0];
-        document.getElementById('date-end').value = d; document.getElementById('date-start').value = d;
+        const e = document.getElementById('date-end');
+        if(e) { e.value = d; document.getElementById('date-start').value = d; }
     };
     const setupEventListeners = () => { window.addEventListener('resize', ()=>{ if(viewState.activeView==='analytics') renderAnalytics(); }); };
     
