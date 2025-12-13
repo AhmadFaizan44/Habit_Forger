@@ -69,6 +69,18 @@
     transform: scale(1.1);
 }
 
+/* Shared Habit Specifics */
+.shared-checkbox:checked {
+    background-color: #EC4899; /* Pink for Shared */
+    border-color: #EC4899;
+}
+.shared-habit-row {
+    background-color: rgba(236, 72, 153, 0.02);
+}
+.dark .shared-habit-row {
+    background-color: rgba(236, 72, 153, 0.05);
+}
+
 /* Nav Active State */
 .active-nav {
     background-color: var(--nav-active-bg, #f5f3ff);
@@ -78,58 +90,7 @@
 
 .dark .active-nav {
     background-color: #1f2937;
-} 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
 }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
-.dark ::-webkit-scrollbar-thumb { background: #4b5563; }
-::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-
-/* Animations */
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-.animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
-
-/* Tracker Checkbox */
-.forge-checkbox {
-    appearance: none;
-    width: 24px;
-    height: 24px;
-    border: 2px solid #e5e7eb;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-}
-.dark .forge-checkbox { border-color: #374151; background: #1f2937; }
-.forge-checkbox:checked {
-    background-color: var(--accent-color, #8B5CF6);
-    border-color: var(--accent-color, #8B5CF6);
-}
-.forge-checkbox:checked::after {
-    content: '\f00c';
-    font-family: "Font Awesome 6 Free";
-    font-weight: 900;
-    color: white;
-    font-size: 14px;
-    position: absolute;
-    top: 50%; left: 50%; transform: translate(-50%, -50%);
-}
-.forge-checkbox:hover { transform: scale(1.1); }
-
-/* Nav Active State */
-.active-nav {
-    background-color: var(--nav-active-bg, #f5f3ff);
-    color: var(--accent-color, #8B5CF6);
-    font-weight: 600;
-}
-.dark .active-nav { background-color: #1f2937; }
 
 /* Sidebar Collapsed State */
 .sidebar-collapsed { width: 80px !important; }
@@ -137,3 +98,14 @@
 .sidebar-collapsed .nav-btn { justify-content: center; padding-left: 0; padding-right: 0; }
 .sidebar-collapsed .nav-btn i { margin: 0; }
 .sidebar-collapsed .p-6 { justify-content: center; }
+
+/* Admin Panel Styles */
+.admin-tab-active {
+    border-bottom: 2px solid #8B5CF6;
+    color: #8B5CF6;
+    font-weight: bold;
+}
+.dark .admin-tab-active {
+    color: #A78BFA;
+    border-color: #A78BFA;
+}
