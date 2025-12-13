@@ -1,6 +1,6 @@
 /**
  * FORGE - Cloud Habit Tracker & Admin System
- * Version: 5.0 (Universal Persistence Fix)
+ * Version: 5.1 (Password Input Logic Simplified)
  */
 
 // --- FIREBASE CONFIGURATION ---
@@ -681,7 +681,6 @@ const app = (() => {
         tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center">Calculating...</td></tr>';
 
         // MOCK Ranking for Local Demo (Since DB might be empty)
-        // If DB exists, it overwrites this.
         let rankings = [];
         
         if(db) {
@@ -771,18 +770,16 @@ const app = (() => {
     };
 
     const updateAdminPassword = () => {
-        const oldPass = document.getElementById('admin-old-pass').value;
         const newPass = document.getElementById('admin-new-pass').value;
 
-        if(oldPass !== globalState.adminSettings.resettablePass) {
-            alert("Incorrect current password.");
+        if(!newPass) {
+            alert("Please enter a new password.");
             return;
         }
         
         globalState.adminSettings.resettablePass = newPass;
-        saveGlobalData(); // Universal Save
-        alert("Resettable password updated.");
-        document.getElementById('admin-old-pass').value = '';
+        saveGlobalData(); // Universal Save (Local + Cloud)
+        alert("Resettable password updated successfully.");
         document.getElementById('admin-new-pass').value = '';
     };
 
